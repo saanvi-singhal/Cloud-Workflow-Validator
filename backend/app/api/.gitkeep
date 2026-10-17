@@ -1,0 +1,4 @@
+# Scaffolding placeholder for API routes and FastAPI endpoints
+# Planned canonical routes under /api/v1:
+#   - GET  /api/v1/health   -> Health check and capability status
+#   - POST /api/v1/validate -> Static analysis, dependency graph, and diagnostics

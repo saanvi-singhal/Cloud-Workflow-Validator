@@ -1,0 +1,16 @@
+# Core Web Framework and Validation
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.30.0,<1.0.0
+pydantic>=2.8.0,<3.0.0
+
+# Parsers for Workflow, Container, and Infrastructure-as-Code Specs
+ruamel.yaml>=0.18.0,<0.20.0
+dockerfile-parse>=2.0.0,<3.0.0
+python-hcl2>=7.0.0,<9.0.0
+
+# Testing and Mock HTTP Client
+pytest>=8.0.0,<10.0.0
+httpx>=0.27.0,<1.0.0
+
+# Code Linting and Formatting Tooling
+ruff>=0.6.0,<1.0.0

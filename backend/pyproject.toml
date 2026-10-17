@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloud-workflow-validator-backend"
+version = "0.1.0"
+description = "Compiler-based static validator for cloud workflows, Dockerfiles, and Terraform configurations"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.30.0,<1.0.0",
+    "pydantic>=2.8.0,<3.0.0",
+    "ruamel.yaml>=0.18.0,<0.20.0",
+    "dockerfile-parse>=2.0.0,<3.0.0",
+    "python-hcl2>=7.0.0,<9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0,<10.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "ruff>=0.6.0,<1.0.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+pythonpath = ["."]
+addopts = "-v --strict-markers"
+markers = [
+    "unit: mark test as a fast unit test",
+    "integration: mark test as an integration test",
+    "compiler: mark test as a compiler core or graph test",
+    "parser: mark test as a parser-specific test",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
