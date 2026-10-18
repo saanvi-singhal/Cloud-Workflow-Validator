@@ -38,4 +38,4 @@ jobs:
 
       - name: Run pytest test suite
         run: |
-          pytest backend/tests
+          pytest backend/tests --cov=app --cov-fail-under=70
