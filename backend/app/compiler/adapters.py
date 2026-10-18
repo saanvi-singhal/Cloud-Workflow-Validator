@@ -15,7 +15,7 @@ Example for a parser author::
             ...
             return ParseResult(ir=IRGraph(format=SourceFormat.yaml, ...))
 
-    register_adapter(GithubActionsAdapter())
+    ADAPTER = GithubActionsAdapter()   # picked up by get_adapter()
 """
 
 from __future__ import annotations
@@ -59,9 +59,9 @@ class AdapterNotAvailableError(LookupError):
 
 _REGISTRY: dict[SourceFormat, SourceAdapter] = {}
 
-# Modules that call register_adapter() when imported. They are imported lazily
-# so the core has no import-time dependency on any parser library. Parser
-# owners add their module here.
+# Modules that define a module-level ``ADAPTER``. They are imported lazily on
+# first use, so the core has no import-time dependency on any parser library.
+# Parser owners add their module here (or call register_adapter themselves).
 BUILTIN_ADAPTER_MODULES: dict[SourceFormat, str] = {
     SourceFormat.terraform: "app.parsers.terraform",
 }
@@ -84,7 +84,8 @@ def unregister_adapter(fmt: SourceFormat) -> None:
 def get_adapter(fmt: SourceFormat) -> SourceAdapter:
     """Return the adapter for ``fmt``, importing a built-in one on first use."""
     if fmt not in _REGISTRY and fmt in BUILTIN_ADAPTER_MODULES:
-        importlib.import_module(BUILTIN_ADAPTER_MODULES[fmt])
+        module = importlib.import_module(BUILTIN_ADAPTER_MODULES[fmt])
+        register_adapter(module.ADAPTER)
     try:
         return _REGISTRY[fmt]
     except KeyError:
