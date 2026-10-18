@@ -230,6 +230,14 @@ def test_syntax_error_has_position():
     assert "Token(" not in info.value.message
 
 
+def test_unexpected_character_is_described():
+    with pytest.raises(HclSyntaxError) as info:
+        parse_hcl('resource "a" "b" {\n  x = 1 @\n}\n')
+    assert info.value.line == 2
+    assert str(info.value) == info.value.message
+    assert "Token(" not in info.value.message
+
+
 def test_adapter_reports_syntax_error_without_ir():
     result = ADAPTER.parse('resource "a" {\n', "main.tf")
     assert result.ir is None

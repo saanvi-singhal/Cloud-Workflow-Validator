@@ -22,7 +22,7 @@ default ~1000-frame recursion limit on long dependency chains.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 
 from app.compiler.findings import EdgeKey, Finding, make_finding
@@ -125,61 +125,72 @@ def is_cyclic_component(graph: DependencyGraph, component: Sequence[str]) -> boo
     return len(component) > 1 or graph.has_self_loop(component[0])
 
 
-def find_cycle_path(graph: DependencyGraph, component: Sequence[str]) -> list[str]:
-    """Return one closed cycle ``[n0, n1, ..., n0]`` inside a cyclic SCC.
+def find_cycle_path(
+    graph: DependencyGraph, nodes: Iterable[str] | None = None
+) -> list[str] | None:
+    """Return one closed cycle ``[n0, n1, ..., n0]``, or ``None`` if acyclic.
 
-    Classic three-colour DFS, restricted to the SCC's nodes:
+    Classic three-colour DFS over ``nodes`` (default: the whole graph). Edges
+    leaving that node set are ignored.
 
     * WHITE: unvisited;
     * GRAY: on the current path (the recursion stack);
-    * BLACK: finished.
+    * BLACK: finished; every path from it has been explored without a cycle.
 
     Reaching a GRAY node means we followed an edge back onto our own path,
     which is a cycle. The cycle is the part of the path from that GRAY node
-    to the current node, closed by repeating the GRAY node. DFS starts at
-    the smallest id and visits successors in sorted order, so the path is
-    deterministic. A self-loop ``a -> a`` gives ``["a", "a"]``.
+    to the current node, closed by repeating the GRAY node. Reaching a BLACK
+    node is fine: it was already fully explored. Start nodes and successors
+    are taken in sorted order, so the path is deterministic. A self-loop
+    ``a -> a`` gives ``["a", "a"]``.
+
+    ``detect_cycles`` calls this once per cyclic SCC, which always contains
+    a cycle, so the result there is never ``None``.
     """
-    members = set(component)
-    if not members or not is_cyclic_component(graph, sorted(members)):
-        raise ValueError("find_cycle_path needs a cyclic strongly connected component")
-
+    members = set(graph.nodes if nodes is None else nodes)
     color = dict.fromkeys(members, WHITE)
-    start = min(members)
-    path = [start]
-    color[start] = GRAY
-    successor_iters: list[Iterator[str]] = [iter(graph.successors(start))]
 
-    while successor_iters:
-        node = path[-1]
-        for succ in successor_iters[-1]:
-            if succ not in members:
-                continue
-            if color[succ] == GRAY:
-                return path[path.index(succ) :] + [succ]
-            if color[succ] == WHITE:
-                color[succ] = GRAY
-                path.append(succ)
-                successor_iters.append(iter(graph.successors(succ)))
-                break
-        else:
-            # No unexplored successor left: backtrack.
-            color[node] = BLACK
-            path.pop()
-            successor_iters.pop()
+    for start in sorted(members):
+        if color[start] != WHITE:
+            continue
+        path = [start]
+        color[start] = GRAY
+        successor_iters: list[Iterator[str]] = [iter(graph.successors(start))]
 
-    # Unreachable for a genuine SCC: every SCC with an edge contains a cycle.
-    raise AssertionError("no cycle found in a cyclic component")
+        while successor_iters:
+            node = path[-1]
+            for succ in successor_iters[-1]:
+                if succ not in members:
+                    continue
+                if color[succ] == GRAY:
+                    return path[path.index(succ) :] + [succ]
+                if color[succ] == WHITE:
+                    color[succ] = GRAY
+                    path.append(succ)
+                    successor_iters.append(iter(graph.successors(succ)))
+                    break
+            else:
+                # No unexplored successor left: finish `node` and backtrack.
+                color[node] = BLACK
+                path.pop()
+                successor_iters.pop()
+
+    return None
 
 
 def detect_cycles(graph: DependencyGraph) -> CycleReport:
     """Find every cyclic region (Tarjan) and one readable path in each (DFS)."""
-    cyclic = [
-        c for c in strongly_connected_components(graph) if is_cyclic_component(graph, c)
-    ]
-    return CycleReport(
-        components=cyclic, paths=[find_cycle_path(graph, c) for c in cyclic]
-    )
+    components: list[list[str]] = []
+    paths: list[list[str]] = []
+    for component in strongly_connected_components(graph):
+        if not is_cyclic_component(graph, component):
+            continue
+        path = find_cycle_path(graph, component)
+        if path is None:  # impossible for a cyclic SCC; guards against misuse
+            raise AssertionError(f"no cycle found in cyclic component {component}")
+        components.append(component)
+        paths.append(path)
+    return CycleReport(components=components, paths=paths)
 
 
 def cycle_findings(

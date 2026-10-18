@@ -73,12 +73,30 @@ def test_path_in_complex_component_is_a_real_cycle():
     assert_is_cycle(g, path)
 
 
-def test_find_cycle_path_rejects_acyclic_component():
-    g = build_graph([("a", "b")])
-    with pytest.raises(ValueError):
-        find_cycle_path(g, ["a"])
-    with pytest.raises(ValueError):
-        find_cycle_path(g, [])
+def test_find_cycle_path_returns_none_when_acyclic():
+    g = build_graph([("a", "b"), ("b", "c"), ("a", "c")])
+    assert find_cycle_path(g) is None
+    assert find_cycle_path(g, ["a"]) is None
+    assert find_cycle_path(build_graph()) is None
+
+
+def test_dfs_backtracks_past_finished_nodes_to_find_a_later_cycle():
+    # a -> b -> c is a dead end (b, c become BLACK); the cycle d <-> e is only
+    # found after backtracking to a and exploring its next successor.
+    g = build_graph([("a", "b"), ("b", "c"), ("a", "d"), ("d", "e"), ("e", "d")])
+    assert find_cycle_path(g) == ["d", "e", "d"]
+
+
+def test_dfs_reaching_black_node_is_not_a_cycle():
+    # Diamond: c is reached twice (second time it is BLACK), still acyclic.
+    g = build_graph([("a", "b"), ("a", "c"), ("b", "c")])
+    assert find_cycle_path(g) is None
+
+
+def test_dfs_ignores_edges_leaving_the_node_set():
+    g = build_graph([("a", "b"), ("b", "a"), ("b", "x")])
+    assert find_cycle_path(g, ["a", "b"]) == ["a", "b", "a"]
+    assert find_cycle_path(g, ["b", "x"]) is None
 
 
 # --- detect_cycles + findings -------------------------------------------------

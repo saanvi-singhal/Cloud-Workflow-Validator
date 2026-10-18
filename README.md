@@ -291,6 +291,9 @@ For comprehensive deployment instructions, project configuration, and platform c
 
 ## 15. Documentation Index
 
+- [Project Specification (authoritative contract)](docs/PROJECT_SPEC.md)
+- [Compiler Core Reference (IR, diagnostic codes, Terraform support, integration guide)](docs/compiler-core.md)
+- [Compiler Core Implementation Plan (approved decisions D1–D17)](docs/claude-planning.md)
 - [Architecture & Pipeline Specification](docs/architecture.md)
 - [REST API Contracts](docs/api.md)
 - [Testing Guidelines](docs/testing.md)
