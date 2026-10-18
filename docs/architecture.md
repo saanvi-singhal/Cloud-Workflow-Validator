@@ -1,128 +1,141 @@
-# System Architecture & Compiler Pipeline
+# Architecture
 
-This document defines the high-level architecture, intermediate representation design, and static analysis pipeline for the **Compiler-Based Cloud Workflow Validator**.
+How Cloud-Workflow-Validator turns a configuration file into a dependency
+graph, diagnostics and recommendations. The authoritative contract is
+[PROJECT_SPEC.md sections 2-6](PROJECT_SPEC.md#2-architecture); the details of
+the implemented compiler core are in [compiler-core.md](compiler-core.md).
 
----
+## Static analysis only
 
-## 1. Pipeline Overview
+The validator **never executes user configuration**. It does not run
+workflows, build Docker images, run `terraform init/plan/apply`, contact cloud
+providers, or evaluate variables. Source text is parsed and inspected; nothing
+else (spec 1.2).
 
-The validator adopts a classic multi-stage compiler pipeline designed to ingest heterogeneous infrastructure and workflow configurations, transform them into a normalized graph model, and execute semantic analysis passes.
+## Pipeline
 
 ```
-+-------------------------------------------------------------------------+
-|                              Input Layer                                |
-|   - CI/CD Workflows (.yaml/.yml)                                        |
-|   - Container Specifications (Dockerfile)                              |
-|   - Infrastructure-as-Code (.tf - Terraform HCL)                        |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                        Language Adapter Layer                           |
-|   - YAML Parser (ruamel.yaml)                                           |
-|   - Dockerfile Parser (dockerfile-parse)                                |
-|   - Terraform Parser (python-hcl2)                                      |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                Common Intermediate Representation (IR)                  |
-|   - Unified AST / Element Definitions                                   |
-|   - Node typing (Task, Stage, Resource, Artifact)                       |
-|   - Explicit dependency declarations & implicit data references          |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                     Dependency Graph Construction                       |
-|   - Directed Graph / DAG model                                          |
-|   - Generic Nodes (Identifiers, Metadata, Attributes)                   |
-|   - Generic Directed Edges (DependencyType: order, data, trigger)       |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                         Static Analysis Passes                          |
-|   - Cycle Detection (Tarjan's strongly connected components / DFS)      |
-|   - Topological Ordering & Critical Path Analysis                       |
-|   - Dead Path / Orphan Resource Detection                               |
-|   - Resource Shadowing & Anti-pattern Linter                            |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                 Diagnostics & Recommendation Engine                     |
-|   - Diagnostic Codes (ERR_CYCLE_DETECTED, WARN_ORPHAN_RESOURCE, etc.)  |
-|   - Severity Levels (ERROR, WARNING, INFO)                              |
-|   - Precise Source Mapping (file, line, column, element ID)             |
-|   - Remediation Suggestions & Auto-Fix Diffs                            |
-+-------------------------------------------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-|                           Presentation Layer                            |
-|   - FastAPI REST API (backend/app/api)                                  |
-|   - Interactive Dependency Graph Visualization (React Flow / Frontend)  |
-|   - Diagnostics Console & Remediation Suggestions                       |
-+-------------------------------------------------------------------------+
+ source text + format (+ optional filename)
+          |
+          v
+ +---------------------------------------------+
+ | Parser adapter (one per format)             |   app/compiler/adapters.py
+ |   terraform       -> app/parsers/terraform  |   (SourceAdapter Protocol)
+ |   yaml            -> app/parsers/github_actions  [not implemented yet]
+ |   dockerfile      -> app/parsers/dockerfile      [not implemented yet]
+ |   also runs the format's rules (app/rules/) |
+ +---------------------------------------------+
+          |
+          v
+ ParseResult = shared IR (IRGraph: nodes + edges)      app/compiler/ir.py
+             + parser findings (syntax errors, unresolved references,
+               unsupported constructs, security findings)
+             + dependency_analysis_complete flag
+          |
+          v
+ Integrity validation                                  app/analysis/validation.py
+   unique node ids, edge endpoints exist, edge type allowed for format
+          |
+          v
+ Graph analysis on a sorted adjacency index            app/compiler/graph.py
+   - cycles: Tarjan SCC + DFS path reconstruction      app/analysis/cycles.py
+   - execution order: Kahn topological sort            app/analysis/topological_sort.py
+   - disconnected components / reachability            app/analysis/reachability.py
+     (what is reported per format is decided in        app/compiler/policy.py)
+          |
+          v
+ Deterministic sort of all diagnostics                 app/compiler/ir.py
+          |
+          v
+ Recommendations (one rule per diagnostic code)        app/recommendations/
+          |
+          v
+ AnalysisResult {valid, format, diagnostics, graph,    app/models/analysis.py
+                 execution_order, recommendations}     (built by app/compiler/pipeline.py)
+          |
+          v
+ FastAPI POST /api/v1/validate  [not implemented yet]  app/api/, app/main.py
+          |
+          v
+ React + React Flow frontend    [not implemented yet]  frontend/
 ```
 
----
+The single entry point is `app.compiler.pipeline.compile_source(source, format, filename)`.
 
-## 2. Decoupling Parsers from Generic Graph Algorithms
+## Key design rules
 
-A core architectural principle of this validator is the **strict decoupling of language-specific parsers from generic graph analysis algorithms**.
+- **Parsers are separate from graph algorithms.** Parsers only produce IR and
+  format-specific findings. The algorithms in `app/analysis/` only see the IR
+  and never know which format it came from. Format differences (for example,
+  "Dockerfiles have no execution order") are written as explicit rules in
+  `app/compiler/policy.py`, not hidden special cases.
+- **One shared IR.** Every format produces the same `Node`/`Edge` models
+  (spec section 3). Format-specific detail lives in `metadata`.
+- **Edge direction:** `A -> B` means A is a prerequisite of B (spec 3.6), everywhere.
+- **Determinism:** IDs come from source identity (e.g. `tf:resource:aws_vpc.main`),
+  never random. Nodes, edges and diagnostics are sorted, and topological ties
+  are broken lexicographically.
+- **No guessing.** A reference to something undeclared becomes an
+  `UNRESOLVED_DEPENDENCY` diagnostic instead of an edge. An expression form the
+  analyser can't interpret safely becomes an `UNSUPPORTED_CONSTRUCT` diagnostic
+  and marks the analysis as partial.
 
-### A. Language-Specific Parsers (`backend/app/parsers/`)
-- Responsible strictly for reading raw configuration text and extracting syntax-level primitives:
-  - **YAML Parser**: Reads job names, `needs` arrays, matrix configurations, step sequences, environment bindings.
-  - **Dockerfile Parser**: Extracts build stages (`FROM ... AS stage`), base images, file copies (`COPY --from=...`), and command chains.
-  - **Terraform Parser**: Parses HCL blocks, extracting resources, variables, providers, module calls, and inter-resource references (e.g. `aws_security_group.sg.id`).
-- Parsers **do not** perform cycle detection, reachability queries, or cross-format validation. Their sole role is converting format-specific structures into the unified IR schema.
+## Algorithms
 
-### B. Common Intermediate Representation (`backend/app/compiler/ir.py`)
-- Defines standard Pydantic models representing:
-  - `IRGraph`: Root container containing nodes and directed edges.
-  - `IRNode`: Generic element representing a computation step, container layer, or infrastructure resource.
-    - Attributes: `id`, `name`, `kind`, `source_location` (file, start_line, end_line), `attributes`.
-  - `IREdge`: Directed dependency link.
-    - Attributes: `source_id`, `target_id`, `dependency_kind` (`EXPLICIT_NEEDS`, `DATA_REFERENCE`, `STAGE_INHERITANCE`, `ARTIFACT_CONSUMPTION`).
+| Concern | Algorithm | Role |
+|---|---|---|
+| Integrity | Linear scans | Duplicate ids, dangling edges and wrong edge types are reported and removed before any algorithm runs. |
+| Cyclic regions | **Tarjan's SCC** (iterative) | Finds *every* strongly connected component in one O(V+E) pass. A component with 2+ nodes, or one node with a self-loop, is a cyclic region. This yields exactly one `DEPENDENCY_CYCLE` per region, even when cycles overlap. |
+| Readable cycle path | **DFS with WHITE/GRAY/BLACK colours** (iterative) | Run inside each cyclic region; an edge back to a GRAY node (one on the current path) closes a cycle, giving a path like `a -> b -> a` that users can follow in their source. Tarjan gives the set of nodes; DFS gives the path. |
+| Execution order | **Kahn's algorithm**, min-heap tie-break | Lexicographically smallest ready node first. Returns nothing (`null`) when not all nodes can be ordered. It never returns a partial order. |
+| Connectivity | BFS over weakly connected components | Reports extra multi-node components as `info` for YAML and Terraform. Never an error. |
+| Reachability | BFS over predecessors (ancestors) | Only when the format defines a root. Today only Dockerfiles do (the final stage). No universal root is invented (spec 5.5). |
 
-### C. Generic Graph Engine (`backend/app/analysis/`)
-- Operates strictly on `IRGraph` without awareness of whether the graph originated from YAML, Dockerfile, or HCL.
-- Houses graph algorithms:
-  - **Cycle Detection**: Identifies circular dependencies using Tarjan's Strongly Connected Components (SCC) or recursive DFS coloring.
-  - **Topological Sorting**: Generates valid execution schedules using Kahn's algorithm or reverse post-order DFS.
-  - **Reachability & Orphan Detection**: Identifies disconnected subgraphs, unreachable build stages, or unused cloud resources.
-  - **Bottleneck Analysis**: Identifies critical execution paths and serial bottlenecks in parallel workflows.
+Both DFS and Tarjan use explicit stacks rather than recursion, so long
+dependency chains do not hit Python's recursion limit.
 
----
+## Module layout
 
-## 3. Diagnostics & Recommendation Architecture (`backend/app/recommendations/`)
+Current tree under `backend/app/` (packages that do not exist yet are marked):
 
-Once graph analysis passes complete:
-1. Analysis passes produce raw diagnostics (`DiagnosticRecord`).
-2. The **Recommendation Engine** maps diagnostics to actionable remediation rules:
-   - For circular dependencies: Highlights the exact circular chain ($A \rightarrow B \rightarrow C \rightarrow A$) and suggests dependency inversion or decoupling.
-   - For multi-stage Docker builds: Identifies missing layer caching opportunities or unnecessary intermediate dependencies.
-   - For Terraform configurations: Flags dangling resource references or circular provider dependencies.
-3. Every recommendation provides:
-   - Unique diagnostic rule ID (e.g., `RULE-WF-001`, `RULE-DKR-004`, `RULE-TF-002`).
-   - Human-readable title and technical rationale.
-   - Suggested remediation strategy with optional code diff snippet.
+```
+backend/app/
+  main.py                  FastAPI entry point             [not created yet - Saanvi]
+  api/                     routes, request models          [empty - Saanvi]
+  models/                  shared wire contract (Pydantic): nodes, edges,
+                           source locations, diagnostics, recommendations,
+                           AnalysisResult
+  compiler/                ir.py, graph.py, findings.py, policy.py,
+                           adapters.py, pipeline.py
+  analysis/                validation.py, cycles.py, topological_sort.py,
+                           reachability.py
+  parsers/
+    github_actions/        GitHub Actions YAML adapter      [not created yet - Saanvi]
+    dockerfile/            Dockerfile adapter               [not created yet - Saanvi]
+    terraform/             hcl_loader.py, blocks.py, references.py, extractor.py
+  rules/                   terraform_rules.py (selected security rules)
+  recommendations/         engine.py, catalog.py
+```
 
----
+Dependencies point one way: `api -> compiler -> analysis / recommendations -> models`,
+and `parsers -> compiler (adapter contract) -> models`. Only
+`parsers/terraform/hcl_loader.py` imports the HCL parser library.
 
-## 4. Module Layout & Team Ownership Mapping
+## Diagnostics and recommendations
 
-| Module Directory | Primary Responsibility | Team Member Ownership |
-| :--- | :--- | :--- |
-| `backend/app/compiler/` | IR schemas, graph builder, compiler core pipeline | **Lead** (Me) |
-| `backend/app/parsers/hcl.py` | Terraform HCL parser & resource link extraction | **Lead** (Me) |
-| `backend/app/analysis/` | Cycle detection, topological sort, orphan analysis | **Lead** (Me) |
-| `backend/app/recommendations/`| Lint rules, remediation generator | **Lead** (Me) |
-| `backend/app/parsers/yaml.py` | YAML workflow parser (GitHub Actions, etc.) | **Saanvi** |
-| `backend/app/parsers/docker.py`| Dockerfile parser & multi-stage dependency extractor | **Saanvi** |
-| `backend/app/api/` | FastAPI routes, request validation, CORS, error handling | **Saanvi** |
-| `frontend/src/components/` | React UI, graph visualization canvas, diagnostics panel | **Pavithra** |
-| `frontend/src/api/` | Frontend API client communicating with backend | **Pavithra** |
+Diagnostics use the compact schema of spec 6.1 (`code`, `severity`,
+`message`, `source_location`). Recommendations are produced by deterministic
+rules, link to one diagnostic by index, and only *describe* a change (with an
+optional text preview). The tool never deletes edges, rewrites source or
+modifies infrastructure (spec 6.2). See [api.md](api.md) for the schemas and
+[compiler-core.md](compiler-core.md) for the code and rule catalogues.
+
+## Ownership (spec section 12)
+
+| Area | Owner |
+|---|---|
+| Shared IR and graph model, graph validation, DFS cycle paths and Tarjan SCC, Kahn ordering, reachability/disconnected components, **Terraform parsing, dependency extraction and semantic analysis**, recommendation engine and selected semantic/security checks, core algorithm and integration tests | Compiler core: project owner |
+| GitHub Actions YAML parser, Dockerfile parser, FastAPI request/response models and endpoints, source-location diagnostic integration, parser/API tests, wiring parsers into the core, `/api/v1/health` and `/api/v1/validate` | Backend parsers/API: Saanvi |
+| React/TypeScript/Vite/Tailwind UI, editor and upload, React Flow graph and layout, node and Dockerfile instruction details, diagnostics and source navigation, recommendation panel, API integration, frontend tests | Frontend: Pavithra |
+
+The project owner has final authority over shared contracts (spec 12.4).
