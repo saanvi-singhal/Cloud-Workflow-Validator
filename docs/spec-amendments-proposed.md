@@ -1,15 +1,17 @@
 # Proposed amendments to PROJECT_SPEC.md
 
-**Status: awaiting project-owner approval. `docs/PROJECT_SPEC.md` has NOT been edited.**
+**Status: decided by the project owner and applied to `docs/PROJECT_SPEC.md` (commit `c29bd69`).**
+A1-A6 were applied exactly as written below. A7 was resolved with Option 1.
+B1 and B2 were added by the owner and applied in the same commit.
 
 Each amendment gives the exact current text ("Before") and the proposed
 replacement ("After"), followed by how it relates to the code on branch
-`dev-bibek`. Quoted "Before" text is copied verbatim, line wrapping included,
+`dev-bibek` (now `feat/compiler-core`). Quoted "Before" text is copied verbatim, line wrapping included,
 so it can be found with a plain search.
 
 ---
 
-## A1. `end_column` is exclusive (decision D4)
+## A1. `end_column` is exclusive (decision D4) - APPLIED
 
 **Section:** 3.3 Source-location schema
 
@@ -45,7 +47,7 @@ Dockerfile parsers don't exist yet and must follow this rule.
 
 ---
 
-## A2. When `execution_order` is `null`
+## A2. When `execution_order` is `null` - APPLIED
 
 **Section:** 5.3 Topological sort
 
@@ -85,7 +87,7 @@ with the spec.
 
 ---
 
-## A3. Unknown references are error-severity `UNRESOLVED_DEPENDENCY` (decision D8)
+## A3. Unknown references are error-severity `UNRESOLVED_DEPENDENCY` (decision D8) - APPLIED
 
 **Section:** 4.1 GitHub Actions YAML
 
@@ -135,7 +137,7 @@ no code contradicts it.
 
 ---
 
-## A4. Dockerfile stage metadata required for reachability
+## A4. Dockerfile stage metadata required for reachability - APPLIED
 
 **Section:** 4.2 Dockerfile
 
@@ -172,7 +174,7 @@ codes added by D2 that are not yet in the spec's 6.1 code list (see
 
 ---
 
-## A5. `docker_instruction_order` is reserved, not emitted in v1
+## A5. `docker_instruction_order` is reserved, not emitted in v1 - APPLIED
 
 **Section:** 3.5 Edge schema
 
@@ -207,7 +209,7 @@ instructions as nodes can use it without a schema change.
 
 ---
 
-## A6. Remove "Terraform parser integration" from Agent B
+## A6. Remove "Terraform parser integration" from Agent B - APPLIED
 
 **Section:** 16, "Agent B --- Backend parsers/API"
 
@@ -241,7 +243,13 @@ to the compiler core (Agent A).
 
 ---
 
-## A7. Branch naming: decision needed (no recommendation made)
+## A7. Branch naming - APPLIED: Option 1
+
+**Decision:** Option 1. The canonical branch is `feat/compiler-core`; the spec and
+README are unchanged. The local branch `dev-bibek` was renamed with
+`git branch -m dev-bibek feat/compiler-core`.
+
+The options as originally proposed:
 
 The spec (section 13) and the README name the compiler-core branch
 `feat/compiler-core`. The compiler core was actually developed on `dev-bibek`.
@@ -293,14 +301,73 @@ option requires a CI change.
 
 ---
 
-## Not proposed here
+## B1. Disconnected-component policy is part of the contract - APPLIED
 
-These are other differences between the code and the spec. They were not on
-the list of decisions, so no amendment text is proposed for them:
+**Section:** 5.4 Disconnected components. Added by the project owner. The text
+was written from the policy actually defined in `backend/app/compiler/policy.py`.
 
-- **Spec 5.4** says "The chosen default is to **warn** about disconnected
-  components". The code (approved D10) reports them as `info` for YAML and
-  Terraform, and disables the rule for Dockerfiles.
-- **Spec 6.1** example code list doesn't include `INVALID_GRAPH` or
-  `UNREACHABLE_NODE` (approved D2), although the spec requires final names to
-  be consistent across code, tests and docs.
+**Before:** (the last bullet of 5.4, unchanged)
+
+```text
+-   If a format's semantics make disconnected components normal,
+    suppress or downgrade the warning through an explicit rule rather
+    than a hidden special case.
+```
+
+**After:** (the same bullet, followed by a new one)
+
+```text
+-   If a format's semantics make disconnected components normal,
+    suppress or downgrade the warning through an explicit rule rather
+    than a hidden special case.
+-   The following format-aware policy is part of the contract. It is
+    the explicit rule this section asks for, implemented in
+    `backend/app/compiler/policy.py` (approved decision D10):
+    -   GitHub Actions YAML and Terraform: each weakly connected
+        component other than the main (largest) one is reported as
+        `DISCONNECTED_COMPONENT` with `info` severity, and only if it
+        has two or more nodes. Isolated single nodes are not reported,
+        because independent jobs and resources are normal.
+    -   Dockerfile: the disconnected-component rule is disabled. Stages
+        the final stage does not need are reported instead by the
+        reachability check of section 5.5 (`UNREACHABLE_NODE`).
+```
+
+**Code check:** consistent. `POLICIES` gives YAML and Terraform
+`disconnected_severity=Severity.info, report_isolated_nodes=False`, and
+Dockerfile `disconnected_severity=None`. `component_findings()` in
+`backend/app/analysis/reachability.py` skips single-node components and treats
+the largest component (ties broken by smallest id) as the main one. YAML gets
+the same policy as Terraform: the code makes no difference between them.
+
+---
+
+## B2. Add the missing codes to the 6.1 list - APPLIED
+
+**Section:** 6.1 Diagnostic schema, list "Example diagnostic codes". Added by the
+project owner. The list's existing "example" wording is unchanged.
+
+**Before:** (end of the list)
+
+```text
+-   `SOURCE_TOO_LARGE`
+-   `SECURITY_RULE_VIOLATION`
+```
+
+**After:**
+
+```text
+-   `SOURCE_TOO_LARGE`
+-   `SECURITY_RULE_VIOLATION`
+-   `INVALID_GRAPH` --- internal graph inconsistency (an edge endpoint
+    that does not exist, or an edge type not allowed for the format);
+    indicates a parser bug, not a user error.
+-   `UNREACHABLE_NODE` --- a node that the format's defined root does
+    not need (in v1: a Dockerfile stage the final stage does not depend
+    on); warning severity.
+```
+
+**Code check:** consistent. Both names are defined in `DiagnosticCode`
+(`backend/app/models/diagnostics.py`). `INVALID_GRAPH` is emitted by
+`backend/app/analysis/validation.py`, and `UNREACHABLE_NODE` by
+`reachability_findings()` at `Severity.warning`.
