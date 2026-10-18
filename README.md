@@ -151,15 +151,17 @@ cd Cloud-Workflow-Validator
 ```
 
 ### B. Backend Setup
-1. Create and activate a Python virtual environment:
+1. **Always** create the virtual environment *inside the repository root* as `.venv` (it is git-ignored) and activate it. Do not install project dependencies into the system Python:
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
-2. Install Python dependencies:
+2. Install Python dependencies into that venv (runtime + dev tools: pytest, pytest-cov, ruff, httpx), then the backend package itself in editable mode:
    ```bash
    pip install -r backend/requirements.txt
+   pip install -e "backend[dev]"
    ```
+   Re-run both commands whenever `backend/requirements.txt` or `backend/pyproject.toml` changes. Run every command below from the activated venv (or prefix it with `.venv/bin/`).
 3. Initialize the backend environment file:
    ```bash
    cp backend/.env.example backend/.env
@@ -197,6 +199,9 @@ Run tests and quality checks from the repository root:
 ```bash
 # Run pytest backend test suite
 pytest backend/tests
+
+# Run with coverage (target: at least 70% overall)
+pytest backend/tests --cov=app --cov-report=term-missing
 
 # Check for code linting errors
 ruff check backend
