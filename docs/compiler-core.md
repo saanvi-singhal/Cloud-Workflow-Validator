@@ -195,7 +195,7 @@ ADAPTER = GithubActionsAdapter()   # add the module to BUILTIN_ADAPTER_MODULES, 
 
 - Create `UNRESOLVED_DEPENDENCY` findings for unknown `needs` / `COPY --from` targets **instead of** dangling edges. A dangling edge becomes `INVALID_GRAPH`.
 - Set `dependency_analysis_complete=False` if a construct you can't analyse may hide dependencies.
-- Dockerfile stage nodes should set `metadata.stage_index` (int) and `metadata.is_final_stage` (bool). Keep ordered instructions in `metadata` (e.g. `metadata.instructions`).
+- Dockerfile stage nodes must set `metadata.stage_index` (int, 0-based) and `metadata.is_final_stage` (bool), per spec 4.2. Keep ordered instructions in `metadata` (e.g. `metadata.instructions`).
 - Pass `details={"address": "...", "known_addresses": [...]}` on `UNRESOLVED_DEPENDENCY` findings to get "did you mean" recommendations.
 - **API route:**
 

@@ -128,7 +128,7 @@ There are no other diagnostic fields (no `location`, `element_ids` or category).
 | `SOURCE_TOO_LARGE` | n/a | Reserved for the API size limit. The core never produces it. |
 
 `INVALID_GRAPH` and `UNREACHABLE_NODE` were added by approved decision D2 and are
-not yet in the spec's example list. Full details are in [compiler-core.md](compiler-core.md#4-diagnostic-codes).
+listed in spec 6.1. Full details are in [compiler-core.md](compiler-core.md#4-diagnostic-codes).
 
 Diagnostics are sorted by location (`file`, `start_line`, `start_column`;
 diagnostics without a location go last), then severity, `code` and `message`.
