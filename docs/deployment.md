@@ -1,147 +1,100 @@
-# Vercel Monorepo Deployment Guide
+# Deployment
 
-This guide details how to deploy the **Compiler-Based Cloud Workflow Validator** on Vercel as two independently deployed projects (React/Vite Frontend and FastAPI Backend) from this single Git repository.
+> **Status: UNVERIFIED.** Nothing in this repository has been deployed yet.
+> There is no `vercel.json`, no deployment adapter, and no FastAPI app
+> (`backend/app/main.py` does not exist). Everything below is a plan to be
+> confirmed by a real deployment test, as spec 11.2 requires. Do not treat any
+> setting or limit here as verified.
 
----
+Authoritative requirements: [PROJECT_SPEC.md section 11](PROJECT_SPEC.md#11-deployment).
 
-## 1. Monorepo Deployment Model
+## Goal and fallback
 
-Rather than coupling the frontend build to the backend runtime, Vercel deploys each subproject independently by configuring the **Root Directory** setting for each project:
+**Goal: one Vercel project** serving both the Vite frontend and the FastAPI
+backend (spec 11.1). Frontend and API then share one origin, so the browser
+calls `/api/v1/...` on the same host and production needs no CORS at all.
 
-```
-Git Repository (Cloud-Workflow-Validator)
- ├── frontend/  ──> Vercel Project 1: "cloud-workflow-validator-frontend" (Vite Static)
- └── backend/   ──> Vercel Project 2: "cloud-workflow-validator-backend"  (FastAPI Serverless)
-```
+**Fallback: two deployments.** These can be two Vercel projects from the same
+repository (root directories `frontend/` and `backend/`), or Vercel for the
+frontend plus another host for the backend. Use this only if verified Vercel
+constraints (Python entry-point discovery, routing, bundle size, request
+limits) make the single project unreliable. If the fallback is chosen,
+document the evidence and the final architecture here (spec 11.4).
 
-Both projects connect to the same GitHub repository, automatically triggering preview deployments on pull requests and production deployments on merges to `main`.
+Correct deployment takes priority over forcing the one-project layout.
 
----
+## Fixed requirements (regardless of layout)
 
-## 2. Project 1: Frontend Deployment (React + Vite)
+- Canonical routes: **`GET /api/v1/health`** and **`POST /api/v1/validate`**.
+  An optional root `/health` alias may be added for a hosting probe, but it
+  must not replace the canonical route.
+- `backend/app/main.py` stays the canonical FastAPI entry point. A small
+  deployment adapter (e.g. a file that only imports `app`) is added **only if**
+  the verified Vercel configuration requires it, and it must not duplicate
+  route logic (spec 11.3).
+- The frontend reads the API base URL from **`VITE_API_BASE_URL`**. No
+  production URL is hard-coded. In the one-project layout it can be empty or a
+  relative path. `VITE_` variables are embedded in the client bundle, so never
+  put secrets in them.
+- No secrets are committed; only `.env.example` templates (they exist at the
+  repo root, `backend/` and `frontend/`).
+- Local development stays independent of Vercel:
+  `uvicorn app.main:app --reload` (once `main.py` exists) and `npm run dev`.
 
-### A. Vercel Project Configuration
-1. Go to the [Vercel Dashboard](https://vercel.com/dashboard) and click **Add New... -> Project**.
-2. Import this Git repository (`Cloud-Workflow-Validator`).
-3. Set the **Project Name**: e.g., `cloud-workflow-validator-frontend`.
-4. In **Root Directory**, click *Edit* and select:
-   ```
-   frontend
-   ```
-5. **Framework Preset**: Vercel will detect **Vite** automatically.
-6. Verify the Build & Output settings:
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-   - **Install Command**: `npm install`
+## CORS
 
-### B. Frontend Environment Variables
-In **Project Settings -> Environment Variables**:
-- **Key**: `VITE_API_BASE_URL`
-- **Production Value**: `https://cloud-workflow-validator-backend.vercel.app` (URL of your deployed backend project)
-- **Preview Value**: `https://cloud-workflow-validator-backend-preview.vercel.app` (or point to staging backend)
-- **Development Value**: `http://localhost:8000`
+Configure allowed origins **explicitly** from the `ALLOWED_ORIGINS`
+environment variable (comma-separated; already listed in
+`backend/.env.example`). Do not use a wildcard regex such as
+`^https://.*\.vercel\.app$`: that admits every project on `vercel.app`,
+including other people's.
 
-> **Note**: Vite injects environment variables prefixed with `VITE_` into client code at build time. Never store private API keys or server secrets in `VITE_` variables.
+- **One-project layout:** production needs no cross-origin access. Keep
+  `ALLOWED_ORIGINS` to local development origins
+  (`http://localhost:5173`, ...).
+- **Two-deployment layout:** list the production frontend origin explicitly.
+- **Preview deployments (the tradeoff):** each Vercel preview gets a new URL,
+  so a fixed list will not cover them. The options are:
+  1. use the one-project layout, where previews are same-origin;
+  2. point previews at a stable per-branch preview alias and list those origins;
+  3. accept a regex **narrowly scoped to this project's own preview URL
+     pattern**, after verifying exactly what that pattern is.
 
----
+  Options 1 and 2 are safer than option 3. Credentials are not needed: the API
+  has no authentication, so `allow_credentials` can stay off.
 
-## 3. Project 2: Backend Deployment (FastAPI Python Runtime)
+## Platform limits: claimed, not verified
 
-### A. Vercel Project Configuration
-1. Go to the Vercel Dashboard and click **Add New... -> Project**.
-2. Import the same Git repository (`Cloud-Workflow-Validator`).
-3. Set the **Project Name**: e.g., `cloud-workflow-validator-backend`.
-4. In **Root Directory**, click *Edit* and select:
-   ```
-   backend
-   ```
-5. **Framework Preset**: Select **Other**.
+The previous version of this page stated the following numbers. They are
+**claims that must be checked against current Vercel documentation** and a
+real deployment before anyone relies on them:
 
-### B. Dependency Discovery
-Because the Root Directory is set to `backend`, Vercel discovers `requirements.txt` directly at the root of the project. Vercel installs dependencies listed in `backend/requirements.txt` into the serverless Python environment during build.
+| Item | Previously claimed | Status |
+|---|---|---|
+| Python function bundle size | 50 MB compressed / 250 MB uncompressed | must be verified |
+| Request body size | 4.5 MB | must be verified |
+| Function timeout | 10 s (Hobby) / 60 s (Pro) | must be verified |
+| Python runtime versions | 3.9 / 3.12 | must be verified (CI uses 3.11; pyproject requires >= 3.10) |
+| Backend bundle size | "under 10 MB" | never measured |
 
-### C. FastAPI Entrypoint Discovery
-Vercel's Python runtime routes requests to serverless functions using ASGI.
-When the FastAPI application is implemented in `backend/app/main.py`:
-1. Vercel requires an entrypoint adapter, typically located at `backend/api/index.py`:
-   ```python
-   # backend/api/index.py
-   from app.main import app
-   ```
-2. Configure URL routing via `backend/vercel.json`:
-   ```json
-   {
-     "rewrites": [
-       {
-         "source": "/(.*)",
-         "destination": "/api/index.py"
-       }
-     ]
-   }
-   ```
-This forwards all incoming requests (`/api/v1/health`, `/api/v1/validate`, etc.) to the FastAPI application instance.
+The application's own source-size limit (spec 7.5) is configurable, and its
+default has **not been chosen yet**. Pick it only after measuring the real
+request limit.
 
-### D. Backend Environment Variables
-In **Project Settings -> Environment Variables**:
-- `ENVIRONMENT`: `production` (or `preview`)
-- `ALLOWED_ORIGINS`: Comma-separated list of allowed frontend origins for CORS:
-  - Production: `https://cloud-workflow-validator-frontend.vercel.app`
-  - Preview: `https://cloud-workflow-validator-frontend.vercel.app,https://*-your-team.vercel.app`
-- `LOG_LEVEL`: `info`
+## Verification checklist (from spec 11.2)
 
----
+Before committing to a deployment configuration, verify with current Vercel
+documentation **and** a real (or minimal) deployment test:
 
-## 4. CORS Configuration Strategy
+- [ ] how the chosen root directory affects file discovery;
+- [ ] Python function entry-point discovery and routing;
+- [ ] whether `backend/app/main.py` can be exposed directly or needs a small deployment adapter;
+- [ ] frontend build/output settings;
+- [ ] API path routing and rewrite behaviour;
+- [ ] Python dependency bundling and the actual bundle size;
+- [ ] request/body-size limits and function execution limits;
+- [ ] environment-variable configuration and CORS behaviour.
 
-FastAPI uses `CORSMiddleware` to authorize cross-origin browser requests from the frontend client.
-
-- **Local Development**:
-  `ALLOWED_ORIGINS="http://localhost:5173,http://localhost:3000"` allows Vite's default dev server port.
-- **Production**:
-  `ALLOWED_ORIGINS="https://cloud-workflow-validator-frontend.vercel.app"` allows the canonical frontend domain.
-- **Vercel Preview Deployments**:
-  Vercel creates dynamic URLs for pull requests (e.g. `https://cloud-workflow-validator-frontend-git-feat-*.vercel.app`).
-  When configuring CORS in FastAPI:
-  ```python
-  from fastapi.middleware.cors import CORSMiddleware
-  import os
-
-  allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
-
-  app.add_middleware(
-      CORSMiddleware,
-      allow_origins=allowed_origins,
-      allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",  # Allows all preview deployments
-      allow_credentials=True,
-      allow_methods=["*"],
-      allow_headers=["*"],
-  )
-  ```
-
----
-
-## 5. Vercel Platform Constraints & Limits
-
-| Constraint | Limit | Consideration for Workflow Validator |
-| :--- | :--- | :--- |
-| **Python Runtime** | Python 3.9 / 3.12 | All dependencies in `backend/requirements.txt` are verified compatible across modern Python versions. |
-| **Function Bundle Size** | 50 MB (compressed) / 250 MB (uncompressed) | Our chosen dependencies (`ruamel.yaml`, `dockerfile-parse`, `python-hcl2`, `fastapi`) bundle to under 10 MB. Avoid adding heavy numerical libraries (such as `numpy` or `pandas`) unless strictly necessary. |
-| **Request Payload Size** | 4.5 MB | Input workflow configuration files must remain under 4.5 MB per validation request. |
-| **Execution Timeout** | 10 seconds (Hobby) / 60 seconds (Pro) | Static analysis (cycle detection, AST parsing) executes in milliseconds for typical workflow and IaC files. |
-
----
-
-## 6. Local Development Independence
-
-Vercel configuration does **not** interfere with local development:
-- **Run Backend locally**:
-  ```bash
-  cd backend
-  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-  ```
-- **Run Frontend locally**:
-  ```bash
-  cd frontend
-  npm run dev
-  ```
-Neither command requires the `vercel` CLI, mock cloud environments, or external cloud accounts.
+After deploying, confirm that `GET /api/v1/health` and `POST /api/v1/validate`
+work on the deployed URL (spec 11.4). Do not mark deployment as verified until
+all of the above has actually been tested.
