@@ -223,10 +223,14 @@ Use a nullable source location with the following shape:
 }
 ```
 
-All numeric positions are one-based. If the parser cannot reliably
-supply a position, use `null` for the location or the unavailable
-fields; never invent line/column values. Preserve source locations
-through parsing, IR conversion, analysis, diagnostics, and API
+All numeric positions are one-based. `end_line` is inclusive (the line
+holding the last character of the span). `end_column` is exclusive: it
+is the column one past the last character, so a span ending with `}` in
+column 1 has `end_column: 2` (as in the example above). Frontend editor
+highlighting must treat `end_column` as exclusive. If the parser cannot
+reliably supply a position, use `null` for the location or the
+unavailable fields; never invent line/column values. Preserve source
+locations through parsing, IR conversion, analysis, diagnostics, and API
 serialization wherever available.
 
 ### 3.4 Stable node IDs
@@ -265,10 +269,11 @@ Each edge must contain:
 Initial edge types should include `workflow_dependency`,
 `terraform_reference`, `terraform_explicit_dependency`,
 `docker_stage_base`, and `docker_instruction_order` where those
-relationships are represented. The Dockerfile primary graph is
-stage-oriented, so instruction ordering can be retained within stage
-metadata unless a future approved graph mode explicitly represents
-instructions as nodes.
+relationships are represented. `docker_instruction_order` is reserved
+and is not emitted in v1: instructions are not graph nodes in v1, so
+instruction ordering is retained within stage metadata. The type stays
+in the contract so that a future approved graph mode that represents
+instructions as nodes can use it without a schema change.
 
 ### 3.6 Edge direction --- mandatory convention
 
@@ -308,7 +313,9 @@ Serialize to JSON-compatible values.
     type.
 -   Validate missing/unknown job IDs in `needs`, duplicate or otherwise
     invalid job identifiers where applicable, malformed YAML, and
-    relevant schema violations.
+    relevant schema violations. Each unknown job ID in `needs` is an
+    error-severity `UNRESOLVED_DEPENDENCY` diagnostic located at the
+    reference, and no edge is created for it.
 -   Preserve useful workflow/job metadata in node metadata.
 -   Do not execute expressions, actions, shell commands, or workflows.
 -   Document which GitHub Actions features are supported and which are
@@ -323,6 +330,12 @@ Serialize to JSON-compatible values.
 -   The primary graph is stage-oriented. Represent build stages as nodes
     (`type: "stage"`), with relationships for base stages and
     `FROM ... AS ...` aliases where identifiable.
+-   Every stage node must carry `metadata.stage_index` (integer,
+    0-based position of the stage in the file) and
+    `metadata.is_final_stage` (boolean, `true` only for the last
+    stage). Reachability analysis uses these to identify the final
+    stage; stages the final stage does not need are reported as
+    `UNREACHABLE_NODE` warnings.
 -   Keep ordered instructions and their source locations in each stage's
     metadata or a clearly documented equivalent structure.
 -   Show instructions in node details in the UI. Do not require a
@@ -352,6 +365,10 @@ Serialize to JSON-compatible values.
     `depends_on`.
 -   Explicit `depends_on` dependencies should have a distinct edge type
     from inferred references.
+-   A reference (inferred or in `depends_on`) to a resource, data
+    source, module or variable that is not declared in the analysed
+    file is an error-severity `UNRESOLVED_DEPENDENCY` diagnostic located
+    at the reference. No edge is created for it.
 -   Analyze HCL expressions structurally. If an expression form cannot
     be resolved safely, emit a structured unsupported/partial-analysis
     diagnostic rather than guessing.
@@ -392,10 +409,18 @@ Use Kahn's algorithm with deterministic tie-breaking (for example,
 lexicographic node ID among currently available nodes). The result must
 be stable for identical input.
 
--   If a dependency graph is acyclic and ordering is meaningful for the
-    format, return an order.
--   If a cycle exists, set `execution_order` to `null` and return cycle
-    diagnostics.
+-   If a dependency graph is acyclic, ordering is meaningful for the
+    format, dependency analysis is complete, and there are no
+    error-severity diagnostics, return an order.
+-   Otherwise set `execution_order` to `null`. In particular it is
+    `null` when:
+    -   any error-severity diagnostic exists (including cycles,
+        unresolved dependencies and syntax errors);
+    -   a cycle exists (cycle diagnostics are still returned);
+    -   ordering is not meaningful for the format (Dockerfiles in v1);
+    -   dependency analysis is incomplete because an unsupported
+        construct may hide dependencies (a warning-level
+        `UNSUPPORTED_CONSTRUCT`).
 -   Do not return a misleading partial order as though it were complete.
 -   For Dockerfiles, preserve stage/instruction semantics; do not treat
     the stage graph as a complete substitute for Docker's build
@@ -419,6 +444,17 @@ component.
 -   If a format's semantics make disconnected components normal,
     suppress or downgrade the warning through an explicit rule rather
     than a hidden special case.
+-   The following format-aware policy is part of the contract. It is
+    the explicit rule this section asks for, implemented in
+    `backend/app/compiler/policy.py` (approved decision D10):
+    -   GitHub Actions YAML and Terraform: each weakly connected
+        component other than the main (largest) one is reported as
+        `DISCONNECTED_COMPONENT` with `info` severity, and only if it
+        has two or more nodes. Isolated single nodes are not reported,
+        because independent jobs and resources are normal.
+    -   Dockerfile: the disconnected-component rule is disabled. Stages
+        the final stage does not need are reported instead by the
+        reachability check of section 5.5 (`UNREACHABLE_NODE`).
 
 ### 5.5 Reachability
 
@@ -478,6 +514,12 @@ tests, and docs):
 -   `UNSUPPORTED_CONSTRUCT`
 -   `SOURCE_TOO_LARGE`
 -   `SECURITY_RULE_VIOLATION`
+-   `INVALID_GRAPH` --- internal graph inconsistency (an edge endpoint
+    that does not exist, or an edge type not allowed for the format);
+    indicates a parser bug, not a user error.
+-   `UNREACHABLE_NODE` --- a node that the format's defined root does
+    not need (in v1: a Dockerfile stage the final stage does not depend
+    on); warning severity.
 
 ### 6.2 Recommendations
 
@@ -964,10 +1006,11 @@ frontend or duplicate the YAML/Dockerfile parser/API ownership.
 ### Agent B --- Backend parsers/API
 
 Implement the GitHub Actions YAML parser, Dockerfile stage parser,
-Terraform parser integration, FastAPI endpoints, Pydantic
-request/response schemas, source-location diagnostics, API error
-semantics, parser/API tests, and integration with the approved compiler
-core. Use `POST /api/v1/validate` and `GET /api/v1/health`. Treat
+FastAPI endpoints, Pydantic request/response schemas, source-location
+diagnostics, API error semantics, parser/API tests, and integration
+with the approved compiler core. Terraform parsing and analysis belong
+to the compiler core (Agent A). Use `POST /api/v1/validate` and
+`GET /api/v1/health`. Treat
 invalid source as an analysis result (HTTP 200 if analysis completed),
 not automatically as an HTTP failure. Do not create an incompatible IR.
 
