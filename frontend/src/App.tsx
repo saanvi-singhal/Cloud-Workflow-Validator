@@ -1,15 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import terraformMock from './mocks/terraform.json';
-import dockerfileMock from './mocks/dockerfile.json';
-import yamlMock from './mocks/yaml.json';
 import type { AnalysisResult } from './types';
+import { analyze } from './api';
 import DependencyGraph from './components/DependencyGraph';
-
-const MOCKS: Record<string, AnalysisResult> = {
-  terraform: terraformMock as unknown as AnalysisResult,
-  dockerfile: dockerfileMock as unknown as AnalysisResult,
-  yaml: yamlMock as unknown as AnalysisResult,
-};
 
 const SAMPLES: Record<string, string> = {
   terraform: `resource "aws_vpc" "main" {
@@ -78,13 +70,32 @@ export default function App() {
   const [language, setLanguage] = useState('terraform');
   const [code, setCode] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
   const [uploadNote, setUploadNote] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function handleAnalyze() {
-    setResult(MOCKS[language]);
+  async function handleAnalyze() {
+    if (code.trim() === '') {
+      setResult(null);
+      setError('Please paste some code, load a sample or upload a file first.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setResult(null);
+
+    try {
+      const data = await analyze(language, code);
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleFile(e: ChangeEvent<HTMLInputElement>) {
@@ -95,6 +106,7 @@ export default function App() {
     setCode(text);
     setFileName(file.name);
     setResult(null);
+    setError('');
 
     const detected = detectLanguage(file.name);
     if (detected) {
@@ -169,6 +181,7 @@ export default function App() {
                     setCode(SAMPLES[language]);
                     setFileName('');
                     setUploadNote('');
+                    setError('');
                   }}
                   className="text-indigo-600 hover:underline"
                 >
@@ -204,13 +217,26 @@ export default function App() {
 
             <button
               onClick={handleAnalyze}
-              className="mt-4 rounded-md bg-indigo-600 px-5 py-2 font-semibold text-white hover:bg-indigo-700"
+              disabled={loading}
+              className="mt-4 rounded-md bg-indigo-600 px-5 py-2 font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Analyze
+              {loading ? 'Analyzing...' : 'Analyze'}
             </button>
           </section>
 
-          {result === null || status === null ? (
+          {loading ? (
+            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl bg-white p-6 text-center shadow">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+              <h2 className="mt-4 text-lg font-semibold text-slate-800">Analyzing your configuration...</h2>
+              <p className="mt-1 text-sm text-slate-500">Building the dependency graph and checking for issues.</p>
+            </section>
+          ) : error ? (
+            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+              <div className="text-4xl">⚠️</div>
+              <h2 className="mt-3 text-lg font-semibold text-red-700">Couldn't analyze</h2>
+              <p className="mt-1 max-w-sm text-sm text-red-600">{error}</p>
+            </section>
+          ) : result === null || status === null ? (
             <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center">
               <div className="text-5xl">🕸️</div>
               <h2 className="mt-3 text-lg font-semibold text-slate-800">
