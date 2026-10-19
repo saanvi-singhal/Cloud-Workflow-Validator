@@ -45,12 +45,36 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
     return { nodes, edges };
   }, [result]);
 
+  const order = result.execution_order;
+
   return (
-    <div className="mt-4 h-72 overflow-hidden rounded-lg border border-slate-200">
-      <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false}>
-        <Background />
-        <Controls showInteractive={false} />
-      </ReactFlow>
+    <div className="mt-4">
+      <div className="h-72 overflow-hidden rounded-lg border border-slate-200">
+        <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false}>
+          <Background />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
+
+      <div className="mt-3 text-sm">
+        <div className="font-semibold text-slate-900">Execution order</div>
+        {order ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {order.map((step, i) => (
+              <div key={step} className="flex items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">
+                  {i + 1}. {step}
+                </span>
+                {i < order.length - 1 && <span className="text-slate-400">→</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-slate-500">
+            Not available. Fix the issues below first, then analyze again.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

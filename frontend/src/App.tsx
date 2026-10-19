@@ -44,12 +44,34 @@ const FEATURES = [
   { icon: '🛠️', title: 'Suggested fixes', text: 'Get clear recommendations with a preview of the change.' },
 ];
 
+const SEVERITY_STYLES: Record<string, { card: string; title: string }> = {
+  error: {
+    card: 'border-red-200 bg-red-50 hover:bg-red-100',
+    title: 'text-red-700',
+  },
+  warning: {
+    card: 'border-amber-200 bg-amber-50 hover:bg-amber-100',
+    title: 'text-amber-700',
+  },
+  info: {
+    card: 'border-sky-200 bg-sky-50 hover:bg-sky-100',
+    title: 'text-sky-700',
+  },
+};
+
 function detectLanguage(fileName: string): string | null {
   const name = fileName.toLowerCase();
   if (name.endsWith('.tf')) return 'terraform';
   if (name.startsWith('dockerfile') || name.endsWith('.dockerfile')) return 'dockerfile';
   if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml';
   return null;
+}
+
+function getStatus(result: AnalysisResult) {
+  const hasError = result.diagnostics.some(d => d.severity === 'error');
+  if (hasError) return { label: 'Issues found', style: 'bg-red-100 text-red-700' };
+  if (result.diagnostics.length > 0) return { label: 'Warnings', style: 'bg-amber-100 text-amber-700' };
+  return { label: 'Valid', style: 'bg-green-100 text-green-700' };
 }
 
 export default function App() {
@@ -97,6 +119,8 @@ export default function App() {
     el.setSelectionRange(start, end);
     el.scrollTop = Math.max(0, (line - 3) * 20);
   }
+
+  const status = result ? getStatus(result) : null;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -186,7 +210,7 @@ export default function App() {
             </button>
           </section>
 
-          {result === null ? (
+          {result === null || status === null ? (
             <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center">
               <div className="text-5xl">🕸️</div>
               <h2 className="mt-3 text-lg font-semibold text-slate-800">
@@ -198,31 +222,33 @@ export default function App() {
             </section>
           ) : (
             <section className="rounded-xl bg-white p-6 shadow">
-              <span
-                className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                  result.valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                }`}
-              >
-                {result.valid ? 'Valid' : 'Issues found'}
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${status.style}`}>
+                {status.label}
               </span>
 
               {result.graph && <DependencyGraph result={result} />}
 
               <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
+              {result.diagnostics.length === 0 && (
+                <p className="mt-2 text-sm text-slate-500">No issues found.</p>
+              )}
               <ul className="mt-2 space-y-2">
-                {result.diagnostics.map((d, i) => (
-                  <li
-                    key={i}
-                    onClick={() => jumpToLine(d.source_location.start_line)}
-                    className="cursor-pointer rounded-md border border-red-200 bg-red-50 p-3 text-sm hover:bg-red-100"
-                  >
-                    <div className="font-semibold text-red-700">
-                      {d.severity.toUpperCase()} · {d.code} · line {d.source_location.start_line}
-                    </div>
-                    <div className="mt-1 text-slate-700">{d.message}</div>
-                    <div className="mt-1 text-xs text-slate-500">Click to jump to this line</div>
-                  </li>
-                ))}
+                {result.diagnostics.map((d, i) => {
+                  const s = SEVERITY_STYLES[d.severity] ?? SEVERITY_STYLES.info;
+                  return (
+                    <li
+                      key={i}
+                      onClick={() => jumpToLine(d.source_location.start_line)}
+                      className={`cursor-pointer rounded-md border p-3 text-sm ${s.card}`}
+                    >
+                      <div className={`font-semibold ${s.title}`}>
+                        {d.severity.toUpperCase()} · {d.code} · line {d.source_location.start_line}
+                      </div>
+                      <div className="mt-1 text-slate-700">{d.message}</div>
+                      <div className="mt-1 text-xs text-slate-500">Click to jump to this line</div>
+                    </li>
+                  );
+                })}
               </ul>
 
               {result.recommendations.length > 0 && (
