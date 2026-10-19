@@ -1,6 +1,17 @@
 {
   "valid": true,
   "format": "yaml",
+  "graph": {
+    "nodes": [
+      { "id": "yaml:task:build", "label": "build", "type": "task" },
+      { "id": "yaml:task:test", "label": "test", "type": "task" },
+      { "id": "yaml:task:deploy", "label": "deploy", "type": "task" }
+    ],
+    "edges": [
+      { "source": "yaml:task:build", "target": "yaml:task:test", "type": "needs" },
+      { "source": "yaml:task:test", "target": "yaml:task:deploy", "type": "needs" }
+    ]
+  },
   "diagnostics": [],
   "execution_order": ["build", "test", "deploy"],
   "recommendations": []

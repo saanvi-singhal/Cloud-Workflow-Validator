@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import terraformMock from './mocks/terraform.json';
 import dockerfileMock from './mocks/dockerfile.json';
 import yamlMock from './mocks/yaml.json';
@@ -48,9 +48,23 @@ export default function App() {
   const [language, setLanguage] = useState('terraform');
   const [code, setCode] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   function handleAnalyze() {
     setResult(MOCKS[language]);
+  }
+
+  function jumpToLine(line: number) {
+    const el = textareaRef.current;
+    if (!el) return;
+    const lines = code.split('\n');
+    const start = lines
+      .slice(0, line - 1)
+      .reduce((sum, l) => sum + l.length + 1, 0);
+    const end = start + (lines[line - 1]?.length ?? 0);
+    el.focus();
+    el.setSelectionRange(start, end);
+    el.scrollTop = Math.max(0, (line - 3) * 20);
   }
 
   return (
@@ -97,12 +111,13 @@ export default function App() {
             </div>
 
             <textarea
+              ref={textareaRef}
               value={code}
               onChange={e => setCode(e.target.value)}
               placeholder="Paste your configuration here"
               rows={14}
               spellCheck={false}
-              className="mt-4 w-full rounded-md border border-slate-300 p-3 font-mono text-sm"
+              className="mt-4 w-full rounded-md border border-slate-300 p-3 font-mono text-sm leading-5"
             />
 
             <button
@@ -132,21 +147,29 @@ export default function App() {
               >
                 {result.valid ? 'Valid' : 'Issues found'}
               </span>
+
               {result.graph && <DependencyGraph result={result} />}
 
               <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
               <ul className="mt-2 space-y-2">
                 {result.diagnostics.map((d, i) => (
-                  <li key={i} className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">
+                  <li
+                    key={i}
+                    onClick={() => jumpToLine(d.source_location.start_line)}
+                    className="cursor-pointer rounded-md border border-red-200 bg-red-50 p-3 text-sm hover:bg-red-100"
+                  >
                     <div className="font-semibold text-red-700">
                       {d.severity.toUpperCase()} · {d.code} · line {d.source_location.start_line}
                     </div>
                     <div className="mt-1 text-slate-700">{d.message}</div>
+                    <div className="mt-1 text-xs text-slate-500">Click to jump to this line</div>
                   </li>
                 ))}
               </ul>
 
-              <h2 className="mt-5 font-semibold text-slate-900">Suggested fixes</h2>
+              {result.recommendations.length > 0 && (
+                <h2 className="mt-5 font-semibold text-slate-900">Suggested fixes</h2>
+              )}
               {result.recommendations.map(r => (
                 <div key={r.id} className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm">
                   <div className="font-semibold text-indigo-800">{r.title}</div>

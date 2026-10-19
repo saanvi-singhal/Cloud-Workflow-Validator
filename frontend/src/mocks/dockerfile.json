@@ -1,6 +1,15 @@
 {
   "valid": false,
   "format": "dockerfile",
+  "graph": {
+    "nodes": [
+      { "id": "df:stage:build", "label": "stage: build", "type": "stage" },
+      { "id": "df:stage:final", "label": "stage: final (nginx)", "type": "stage" }
+    ],
+    "edges": [
+      { "source": "df:stage:build", "target": "df:stage:final", "type": "copy_from", "label": "COPY --from" }
+    ]
+  },
   "diagnostics": [
     {
       "code": "UNPINNED_IMAGE_TAG",
@@ -9,7 +18,7 @@
       "source_location": { "file": "Dockerfile", "start_line": 6, "start_column": 1, "end_line": 6, "end_column": 18 }
     }
   ],
-  "execution_order": ["build", "stage-1"],
+  "execution_order": ["build", "final"],
   "recommendations": [
     {
       "id": "PIN_IMAGE_TAG:0",
@@ -19,7 +28,7 @@
         "description": "Use a specific nginx version.",
         "preview": "- FROM nginx:latest\n+ FROM nginx:1.27"
       },
-      "related_node_ids": []
+      "related_node_ids": ["df:stage:final"]
     }
   ]
 }

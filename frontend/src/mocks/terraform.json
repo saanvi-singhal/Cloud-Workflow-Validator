@@ -15,7 +15,7 @@
       "code": "UNRESOLVED_DEPENDENCY",
       "severity": "error",
       "message": "Reference to undeclared resource 'aws_vpc.mian' (in 'tags'). v1 analyses a single .tf file, so it must be declared in this file.",
-      "source_location": { "file": "main.tf", "start_line": 5, "start_column": 21, "end_line": 5, "end_column": 36 }
+      "source_location": { "file": "main.tf", "start_line": 7, "start_column": 21, "end_line": 7, "end_column": 36 }
     }
   ],
   "execution_order": null,
