@@ -20,10 +20,22 @@ export interface Recommendation {
   proposed_change: { description: string; preview: string } | null;
   related_node_ids: string[];
 }
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+}
 
+export interface GraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  label?: string;
+}
 export interface AnalysisResult {
   valid: boolean;
   format: string;
+  graph?: { nodes: GraphNode[]; edges: GraphEdge[] };
   diagnostics: Diagnostic[];
   recommendations: Recommendation[];
   execution_order: string[] | null;

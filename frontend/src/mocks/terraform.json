@@ -1,5 +1,14 @@
 {
   "valid": false,
+   "graph": {
+    "nodes": [
+      { "id": "tf:resource:aws_vpc.main", "label": "aws_vpc.main", "type": "resource" },
+      { "id": "tf:resource:aws_subnet.app", "label": "aws_subnet.app", "type": "resource" }
+    ],
+    "edges": [
+      { "source": "tf:resource:aws_vpc.main", "target": "tf:resource:aws_subnet.app", "type": "terraform_reference", "label": "vpc_id" }
+    ]
+  },
   "format": "terraform",
   "diagnostics": [
     {

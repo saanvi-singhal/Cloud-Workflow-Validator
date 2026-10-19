@@ -3,6 +3,7 @@ import terraformMock from './mocks/terraform.json';
 import dockerfileMock from './mocks/dockerfile.json';
 import yamlMock from './mocks/yaml.json';
 import type { AnalysisResult } from './types';
+import DependencyGraph from './components/DependencyGraph';
 
 const MOCKS: Record<string, AnalysisResult> = {
   terraform: terraformMock as unknown as AnalysisResult,
@@ -131,6 +132,7 @@ export default function App() {
               >
                 {result.valid ? 'Valid' : 'Issues found'}
               </span>
+              {result.graph && <DependencyGraph result={result} />}
 
               <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
               <ul className="mt-2 space-y-2">
