@@ -1,0 +1,58 @@
+{
+  "valid": false,
+  "format": "terraform",
+  "graph": {
+    "nodes": [
+      { "id": "tf:resource:aws_s3_bucket.logs", "label": "aws_s3_bucket.logs", "type": "resource",
+        "source_location": { "file": "cyclic.tf", "start_line": 24, "start_column": 1, "end_line": 26, "end_column": 2 } },
+      { "id": "tf:resource:aws_security_group.app", "label": "aws_security_group.app", "type": "resource",
+        "source_location": { "file": "cyclic.tf", "start_line": 2, "start_column": 1, "end_line": 11, "end_column": 2 } },
+      { "id": "tf:resource:aws_security_group.db", "label": "aws_security_group.db", "type": "resource",
+        "source_location": { "file": "cyclic.tf", "start_line": 13, "start_column": 1, "end_line": 22, "end_column": 2 } }
+    ],
+    "edges": [
+      { "source": "tf:resource:aws_s3_bucket.logs", "target": "tf:resource:aws_s3_bucket.logs", "type": "terraform_reference", "label": "bucket",
+        "source_location": { "file": "cyclic.tf", "start_line": 25, "start_column": 20, "end_line": 25, "end_column": 41 } },
+      { "source": "tf:resource:aws_security_group.app", "target": "tf:resource:aws_security_group.db", "type": "terraform_reference", "label": "ingress.security_groups",
+        "source_location": { "file": "cyclic.tf", "start_line": 20, "start_column": 24, "end_line": 20, "end_column": 49 } },
+      { "source": "tf:resource:aws_security_group.db", "target": "tf:resource:aws_security_group.app", "type": "terraform_reference", "label": "egress.security_groups",
+        "source_location": { "file": "cyclic.tf", "start_line": 9, "start_column": 24, "end_line": 9, "end_column": 48 } }
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "DEPENDENCY_CYCLE",
+      "severity": "error",
+      "message": "Dependency cycle: aws_security_group.app -> aws_security_group.db -> aws_security_group.app.",
+      "source_location": { "file": "cyclic.tf", "start_line": 9, "start_column": 24, "end_line": 9, "end_column": 48 }
+    },
+    {
+      "code": "DEPENDENCY_CYCLE",
+      "severity": "error",
+      "message": "Self-dependency: 'aws_s3_bucket.logs' depends on itself.",
+      "source_location": { "file": "cyclic.tf", "start_line": 25, "start_column": 20, "end_line": 25, "end_column": 41 }
+    }
+  ],
+  "execution_order": null,
+  "recommendations": [
+    {
+      "id": "BREAK_DEPENDENCY_CYCLE:0",
+      "rule_id": "BREAK_DEPENDENCY_CYCLE",
+      "title": "Break the dependency cycle",
+      "explanation": "No valid execution order exists while this cycle remains. Break it by removing or inverting one of these dependencies: 'aws_security_group.db' depends on 'aws_security_group.app' (via 'ingress.security_groups'); 'aws_security_group.app' depends on 'aws_security_group.db' (via 'egress.security_groups').",
+      "diagnostic_code": "DEPENDENCY_CYCLE",
+      "diagnostic_index": 0,
+      "fix_kind": "judgment",
+      "proposed_change": {
+        "description": "Remove one dependency on the cycle; which one depends on your intent, so this is not done automatically.",
+        "preview": null,
+        "source_location": { "file": "cyclic.tf", "start_line": 9, "start_column": 24, "end_line": 9, "end_column": 48 }
+      },
+      "source_location": { "file": "cyclic.tf", "start_line": 9, "start_column": 24, "end_line": 9, "end_column": 48 },
+      "related_node_ids": [
+        "tf:resource:aws_security_group.app",
+        "tf:resource:aws_security_group.db"
+      ]
+    }
+  ]
+}
