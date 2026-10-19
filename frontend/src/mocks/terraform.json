@@ -1,34 +1,128 @@
 {
   "valid": false,
-   "graph": {
-    "nodes": [
-      { "id": "tf:resource:aws_vpc.main", "label": "aws_vpc.main", "type": "resource" },
-      { "id": "tf:resource:aws_subnet.app", "label": "aws_subnet.app", "type": "resource" }
-    ],
-    "edges": [
-      { "source": "tf:resource:aws_vpc.main", "target": "tf:resource:aws_subnet.app", "type": "terraform_reference", "label": "vpc_id" }
-    ]
-  },
   "format": "terraform",
   "diagnostics": [
     {
       "code": "UNRESOLVED_DEPENDENCY",
       "severity": "error",
       "message": "Reference to undeclared resource 'aws_vpc.mian' (in 'tags'). v1 analyses a single .tf file, so it must be declared in this file.",
-      "source_location": { "file": "main.tf", "start_line": 7, "start_column": 21, "end_line": 7, "end_column": 36 }
+      "source_location": {
+        "file": "main.tf",
+        "start_line": 7,
+        "start_column": 20,
+        "end_line": 7,
+        "end_column": 35
+      }
     }
   ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "tf:resource:aws_subnet.app",
+        "label": "aws_subnet.app",
+        "type": "resource",
+        "source_location": {
+          "file": "main.tf",
+          "start_line": 5,
+          "start_column": 1,
+          "end_line": 8,
+          "end_column": 2
+        },
+        "metadata": {
+          "block_type": "resource",
+          "address": "aws_subnet.app",
+          "attributes": [
+            "tags",
+            "vpc_id"
+          ],
+          "resource_type": "aws_subnet",
+          "name": "app"
+        }
+      },
+      {
+        "id": "tf:resource:aws_vpc.main",
+        "label": "aws_vpc.main",
+        "type": "resource",
+        "source_location": {
+          "file": "main.tf",
+          "start_line": 1,
+          "start_column": 1,
+          "end_line": 3,
+          "end_column": 2
+        },
+        "metadata": {
+          "block_type": "resource",
+          "address": "aws_vpc.main",
+          "attributes": [
+            "cidr_block"
+          ],
+          "resource_type": "aws_vpc",
+          "name": "main"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "tf:resource:aws_vpc.main",
+        "target": "tf:resource:aws_subnet.app",
+        "type": "terraform_reference",
+        "label": "vpc_id",
+        "source_location": {
+          "file": "main.tf",
+          "start_line": 6,
+          "start_column": 12,
+          "end_line": 6,
+          "end_column": 27
+        },
+        "metadata": {
+          "references": [
+            {
+              "attribute": "vpc_id",
+              "expression": "aws_vpc.main.id",
+              "location": {
+                "file": "main.tf",
+                "start_line": 6,
+                "start_column": 12,
+                "end_line": 6,
+                "end_column": 27
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
   "execution_order": null,
   "recommendations": [
     {
       "id": "RESOLVE_MISSING_DEPENDENCY:0",
+      "rule_id": "RESOLVE_MISSING_DEPENDENCY",
       "title": "Did you mean 'aws_vpc.main'?",
       "explanation": "'aws_vpc.mian' is not declared, but 'aws_vpc.main' is and has a very similar name. If this is a typo, correct the reference.",
+      "diagnostic_code": "UNRESOLVED_DEPENDENCY",
+      "diagnostic_index": 0,
+      "fix_kind": "judgment",
       "proposed_change": {
         "description": "Replace 'aws_vpc.mian' with 'aws_vpc.main'.",
-        "preview": "- aws_vpc.mian\n+ aws_vpc.main"
+        "preview": "- aws_vpc.mian\n+ aws_vpc.main",
+        "source_location": {
+          "file": "main.tf",
+          "start_line": 7,
+          "start_column": 20,
+          "end_line": 7,
+          "end_column": 35
+        }
       },
-      "related_node_ids": ["tf:resource:aws_subnet.app"]
+      "source_location": {
+        "file": "main.tf",
+        "start_line": 7,
+        "start_column": 20,
+        "end_line": 7,
+        "end_column": 35
+      },
+      "related_node_ids": [
+        "tf:resource:aws_subnet.app"
+      ]
     }
   ]
 }

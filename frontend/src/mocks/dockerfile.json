@@ -1,34 +1,185 @@
 {
-  "valid": false,
+  "valid": true,
   "format": "dockerfile",
-  "graph": {
-    "nodes": [
-      { "id": "df:stage:build", "label": "stage: build", "type": "stage" },
-      { "id": "df:stage:final", "label": "stage: final (nginx)", "type": "stage" }
-    ],
-    "edges": [
-      { "source": "df:stage:build", "target": "df:stage:final", "type": "copy_from", "label": "COPY --from" }
-    ]
-  },
   "diagnostics": [
     {
-      "code": "UNPINNED_IMAGE_TAG",
+      "code": "UNREACHABLE_NODE",
       "severity": "warning",
-      "message": "Base image 'nginx:latest' uses the 'latest' tag, so builds are not reproducible.",
-      "source_location": { "file": "Dockerfile", "start_line": 6, "start_column": 1, "end_line": 6, "end_column": 18 }
+      "message": "'test' is not needed by the final build stage ('build'). A default build only builds the stages the target stage needs, so this stage is skipped unless it is selected with --target.",
+      "source_location": {
+        "file": "Dockerfile",
+        "start_line": 6,
+        "start_column": 1,
+        "end_line": 8,
+        "end_column": 13
+      }
     }
   ],
-  "execution_order": ["build", "final"],
+  "graph": {
+    "nodes": [
+      {
+        "id": "docker:stage:0",
+        "label": "base",
+        "type": "stage",
+        "source_location": {
+          "file": "Dockerfile",
+          "start_line": 1,
+          "start_column": 1,
+          "end_line": 4,
+          "end_column": 11
+        },
+        "metadata": {
+          "stage_index": 0,
+          "is_final_stage": false,
+          "alias": "base",
+          "base": "node:20-alpine",
+          "instructions": [
+            {
+              "line": 1,
+              "instruction": "FROM",
+              "text": "FROM node:20-alpine AS base"
+            },
+            {
+              "line": 2,
+              "instruction": "WORKDIR",
+              "text": "WORKDIR /app"
+            },
+            {
+              "line": 3,
+              "instruction": "COPY",
+              "text": "COPY package*.json ./"
+            },
+            {
+              "line": 4,
+              "instruction": "RUN",
+              "text": "RUN npm ci"
+            }
+          ]
+        }
+      },
+      {
+        "id": "docker:stage:1",
+        "label": "test",
+        "type": "stage",
+        "source_location": {
+          "file": "Dockerfile",
+          "start_line": 6,
+          "start_column": 1,
+          "end_line": 8,
+          "end_column": 13
+        },
+        "metadata": {
+          "stage_index": 1,
+          "is_final_stage": false,
+          "alias": "test",
+          "base": "base",
+          "instructions": [
+            {
+              "line": 6,
+              "instruction": "FROM",
+              "text": "FROM base AS test"
+            },
+            {
+              "line": 7,
+              "instruction": "COPY",
+              "text": "COPY . ."
+            },
+            {
+              "line": 8,
+              "instruction": "RUN",
+              "text": "RUN npm test"
+            }
+          ]
+        }
+      },
+      {
+        "id": "docker:stage:2",
+        "label": "build",
+        "type": "stage",
+        "source_location": {
+          "file": "Dockerfile",
+          "start_line": 10,
+          "start_column": 1,
+          "end_line": 12,
+          "end_column": 18
+        },
+        "metadata": {
+          "stage_index": 2,
+          "is_final_stage": true,
+          "alias": "build",
+          "base": "base",
+          "instructions": [
+            {
+              "line": 10,
+              "instruction": "FROM",
+              "text": "FROM base AS build"
+            },
+            {
+              "line": 11,
+              "instruction": "COPY",
+              "text": "COPY . ."
+            },
+            {
+              "line": 12,
+              "instruction": "RUN",
+              "text": "RUN npm run build"
+            }
+          ]
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "docker:stage:0",
+        "target": "docker:stage:1",
+        "type": "docker_stage_base",
+        "label": "FROM base",
+        "source_location": {
+          "file": "Dockerfile",
+          "start_line": 6,
+          "start_column": 6,
+          "end_line": 6,
+          "end_column": 10
+        },
+        "metadata": {}
+      },
+      {
+        "source": "docker:stage:0",
+        "target": "docker:stage:2",
+        "type": "docker_stage_base",
+        "label": "FROM base",
+        "source_location": {
+          "file": "Dockerfile",
+          "start_line": 10,
+          "start_column": 6,
+          "end_line": 10,
+          "end_column": 10
+        },
+        "metadata": {}
+      }
+    ]
+  },
+  "execution_order": null,
   "recommendations": [
     {
-      "id": "PIN_IMAGE_TAG:0",
-      "title": "Pin the image version",
-      "explanation": "Using a specific version makes your build repeatable and avoids surprise changes.",
-      "proposed_change": {
-        "description": "Use a specific nginx version.",
-        "preview": "- FROM nginx:latest\n+ FROM nginx:1.27"
+      "id": "REVIEW_UNUSED_NODE:0",
+      "rule_id": "REVIEW_UNUSED_NODE",
+      "title": "Remove or use the unused stage",
+      "explanation": "Nothing the build target needs depends on this. Remove it, make a needed stage depend on it, or build it explicitly as a target.",
+      "diagnostic_code": "UNREACHABLE_NODE",
+      "diagnostic_index": 0,
+      "fix_kind": "judgment",
+      "proposed_change": null,
+      "source_location": {
+        "file": "Dockerfile",
+        "start_line": 6,
+        "start_column": 1,
+        "end_line": 8,
+        "end_column": 13
       },
-      "related_node_ids": ["df:stage:final"]
+      "related_node_ids": [
+        "docker:stage:1"
+      ]
     }
   ]
 }

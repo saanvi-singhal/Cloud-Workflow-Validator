@@ -1,0 +1,233 @@
+{
+  "valid": true,
+  "format": "terraform",
+  "diagnostics": [
+    {
+      "code": "UNSUPPORTED_CONSTRUCT",
+      "severity": "info",
+      "message": "Unsupported construct 'locals block': not represented in the dependency graph in v1. Dependencies inside it are not analysed.",
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 2,
+        "start_column": 1,
+        "end_line": 4,
+        "end_column": 2
+      }
+    },
+    {
+      "code": "UNSUPPORTED_CONSTRUCT",
+      "severity": "warning",
+      "message": "Unsupported construct 'local.common_tags': references to locals are not analysed in v1. Dependencies inside it are not analysed.",
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 12,
+        "start_column": 16,
+        "end_line": 12,
+        "end_column": 33
+      }
+    },
+    {
+      "code": "UNSUPPORTED_CONSTRUCT",
+      "severity": "warning",
+      "message": "Unsupported construct 'for expression': iterator scoping. Dependencies inside it are not analysed.",
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 16,
+        "start_column": 21,
+        "end_line": 16,
+        "end_column": 52
+      }
+    },
+    {
+      "code": "UNSUPPORTED_CONSTRUCT",
+      "severity": "warning",
+      "message": "Unsupported construct 'heredoc template': interpolation in heredoc. Dependencies inside it are not analysed.",
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 23,
+        "start_column": 19,
+        "end_line": 27,
+        "end_column": 1
+      }
+    },
+    {
+      "code": "UNSUPPORTED_CONSTRUCT",
+      "severity": "warning",
+      "message": "Unsupported construct 'dynamic block': iterator scoping. Dependencies inside it are not analysed.",
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 28,
+        "start_column": 3,
+        "end_line": 33,
+        "end_column": 4
+      }
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "tf:resource:aws_instance.web",
+        "label": "aws_instance.web",
+        "type": "resource",
+        "source_location": {
+          "file": "unsupported_expression.tf",
+          "start_line": 20,
+          "start_column": 1,
+          "end_line": 34,
+          "end_column": 2
+        },
+        "metadata": {
+          "block_type": "resource",
+          "address": "aws_instance.web",
+          "attributes": [
+            "ami",
+            "instance_type",
+            "user_data"
+          ],
+          "resource_type": "aws_instance",
+          "name": "web"
+        }
+      },
+      {
+        "id": "tf:resource:aws_network_interface.nics",
+        "label": "aws_network_interface.nics",
+        "type": "resource",
+        "source_location": {
+          "file": "unsupported_expression.tf",
+          "start_line": 15,
+          "start_column": 1,
+          "end_line": 18,
+          "end_column": 2
+        },
+        "metadata": {
+          "block_type": "resource",
+          "address": "aws_network_interface.nics",
+          "attributes": [
+            "for_each",
+            "subnet_id"
+          ],
+          "resource_type": "aws_network_interface",
+          "name": "nics"
+        }
+      },
+      {
+        "id": "tf:resource:aws_vpc.main",
+        "label": "aws_vpc.main",
+        "type": "resource",
+        "source_location": {
+          "file": "unsupported_expression.tf",
+          "start_line": 10,
+          "start_column": 1,
+          "end_line": 13,
+          "end_column": 2
+        },
+        "metadata": {
+          "block_type": "resource",
+          "address": "aws_vpc.main",
+          "attributes": [
+            "cidr_block",
+            "tags"
+          ],
+          "resource_type": "aws_vpc",
+          "name": "main"
+        }
+      },
+      {
+        "id": "tf:variable:subnet_ids",
+        "label": "var.subnet_ids",
+        "type": "variable",
+        "source_location": {
+          "file": "unsupported_expression.tf",
+          "start_line": 6,
+          "start_column": 1,
+          "end_line": 8,
+          "end_column": 2
+        },
+        "metadata": {
+          "block_type": "variable",
+          "address": "var.subnet_ids",
+          "attributes": [
+            "type"
+          ],
+          "name": "subnet_ids"
+        }
+      }
+    ],
+    "edges": []
+  },
+  "execution_order": null,
+  "recommendations": [
+    {
+      "id": "UNSUPPORTED_LIMITATION:1",
+      "rule_id": "UNSUPPORTED_LIMITATION",
+      "title": "Analysis is partial here",
+      "explanation": "This construct is not analysed in v1, so dependencies inside it are missing from the graph and the execution order is withheld. The configuration may still be valid; review this part manually.",
+      "diagnostic_code": "UNSUPPORTED_CONSTRUCT",
+      "diagnostic_index": 1,
+      "fix_kind": "judgment",
+      "proposed_change": null,
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 12,
+        "start_column": 16,
+        "end_line": 12,
+        "end_column": 33
+      },
+      "related_node_ids": []
+    },
+    {
+      "id": "UNSUPPORTED_LIMITATION:2",
+      "rule_id": "UNSUPPORTED_LIMITATION",
+      "title": "Analysis is partial here",
+      "explanation": "This construct is not analysed in v1, so dependencies inside it are missing from the graph and the execution order is withheld. The configuration may still be valid; review this part manually.",
+      "diagnostic_code": "UNSUPPORTED_CONSTRUCT",
+      "diagnostic_index": 2,
+      "fix_kind": "judgment",
+      "proposed_change": null,
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 16,
+        "start_column": 21,
+        "end_line": 16,
+        "end_column": 52
+      },
+      "related_node_ids": []
+    },
+    {
+      "id": "UNSUPPORTED_LIMITATION:3",
+      "rule_id": "UNSUPPORTED_LIMITATION",
+      "title": "Analysis is partial here",
+      "explanation": "This construct is not analysed in v1, so dependencies inside it are missing from the graph and the execution order is withheld. The configuration may still be valid; review this part manually.",
+      "diagnostic_code": "UNSUPPORTED_CONSTRUCT",
+      "diagnostic_index": 3,
+      "fix_kind": "judgment",
+      "proposed_change": null,
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 23,
+        "start_column": 19,
+        "end_line": 27,
+        "end_column": 1
+      },
+      "related_node_ids": []
+    },
+    {
+      "id": "UNSUPPORTED_LIMITATION:4",
+      "rule_id": "UNSUPPORTED_LIMITATION",
+      "title": "Analysis is partial here",
+      "explanation": "This construct is not analysed in v1, so dependencies inside it are missing from the graph and the execution order is withheld. The configuration may still be valid; review this part manually.",
+      "diagnostic_code": "UNSUPPORTED_CONSTRUCT",
+      "diagnostic_index": 4,
+      "fix_kind": "judgment",
+      "proposed_change": null,
+      "source_location": {
+        "file": "unsupported_expression.tf",
+        "start_line": 28,
+        "start_column": 3,
+        "end_line": 33,
+        "end_column": 4
+      },
+      "related_node_ids": []
+    }
+  ]
+}

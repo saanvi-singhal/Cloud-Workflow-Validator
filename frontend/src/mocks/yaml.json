@@ -1,18 +1,100 @@
 {
   "valid": true,
   "format": "yaml",
+  "diagnostics": [],
   "graph": {
     "nodes": [
-      { "id": "yaml:task:build", "label": "build", "type": "task" },
-      { "id": "yaml:task:test", "label": "test", "type": "task" },
-      { "id": "yaml:task:deploy", "label": "deploy", "type": "task" }
+      {
+        "id": "gha:job:build",
+        "label": "build",
+        "type": "task",
+        "source_location": {
+          "file": "ci.yml",
+          "start_line": 5,
+          "start_column": 1,
+          "end_line": 8,
+          "end_column": 27
+        },
+        "metadata": {
+          "job_id": "build",
+          "runs_on": "ubuntu-latest",
+          "needs": []
+        }
+      },
+      {
+        "id": "gha:job:deploy",
+        "label": "deploy",
+        "type": "task",
+        "source_location": {
+          "file": "ci.yml",
+          "start_line": 14,
+          "start_column": 1,
+          "end_line": 18,
+          "end_column": 25
+        },
+        "metadata": {
+          "job_id": "deploy",
+          "runs_on": "ubuntu-latest",
+          "needs": [
+            "test"
+          ]
+        }
+      },
+      {
+        "id": "gha:job:test",
+        "label": "test",
+        "type": "task",
+        "source_location": {
+          "file": "ci.yml",
+          "start_line": 9,
+          "start_column": 1,
+          "end_line": 13,
+          "end_column": 22
+        },
+        "metadata": {
+          "job_id": "test",
+          "runs_on": "ubuntu-latest",
+          "needs": [
+            "build"
+          ]
+        }
+      }
     ],
     "edges": [
-      { "source": "yaml:task:build", "target": "yaml:task:test", "type": "needs" },
-      { "source": "yaml:task:test", "target": "yaml:task:deploy", "type": "needs" }
+      {
+        "source": "gha:job:build",
+        "target": "gha:job:test",
+        "type": "workflow_dependency",
+        "label": "needs",
+        "source_location": {
+          "file": "ci.yml",
+          "start_line": 10,
+          "start_column": 13,
+          "end_line": 10,
+          "end_column": 18
+        },
+        "metadata": {}
+      },
+      {
+        "source": "gha:job:test",
+        "target": "gha:job:deploy",
+        "type": "workflow_dependency",
+        "label": "needs",
+        "source_location": {
+          "file": "ci.yml",
+          "start_line": 15,
+          "start_column": 13,
+          "end_line": 15,
+          "end_column": 17
+        },
+        "metadata": {}
+      }
     ]
   },
-  "diagnostics": [],
-  "execution_order": ["build", "test", "deploy"],
+  "execution_order": [
+    "gha:job:build",
+    "gha:job:test",
+    "gha:job:deploy"
+  ],
   "recommendations": []
 }
