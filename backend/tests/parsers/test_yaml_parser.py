@@ -1,0 +1,124 @@
+"""Unit and integration tests for the GitHub Actions YAML parser adapter."""
+
+from pathlib import Path
+
+import pytest
+
+from app.compiler.pipeline import compile_source
+from app.models import DiagnosticCode, SourceFormat
+from app.parsers.yaml import YamlAdapter
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "yaml"
+
+
+@pytest.fixture
+def adapter():
+    return YamlAdapter()
+
+
+def test_valid_yaml_workflow_parsing(adapter):
+    source = (FIXTURES / "valid_workflow.yml").read_text()
+    result = compile_source(
+        source, SourceFormat.yaml, filename="valid_workflow.yml", adapter=adapter
+    )
+
+    assert result.valid is True
+    assert len(result.diagnostics) == 0
+    assert len(result.graph.nodes) == 3
+
+    node_ids = {n.id for n in result.graph.nodes}
+    assert "gha:task:build" in node_ids
+    assert "gha:task:test" in node_ids
+    assert "gha:task:deploy" in node_ids
+
+    # Check edges (prerequisites point to dependents)
+    # build -> test, build -> deploy, test -> deploy
+    edges = [(e.source, e.target) for e in result.graph.edges]
+    assert ("gha:task:build", "gha:task:test") in edges
+    assert ("gha:task:build", "gha:task:deploy") in edges
+    assert ("gha:task:test", "gha:task:deploy") in edges
+
+    # Execution order must respect dependencies
+    assert result.execution_order is not None
+    order = result.execution_order
+    assert order.index("gha:task:build") < order.index("gha:task:test")
+    assert order.index("gha:task:test") < order.index("gha:task:deploy")
+
+
+def test_yaml_syntax_error(adapter):
+    source = (FIXTURES / "syntax_error.yml").read_text()
+    result = compile_source(
+        source, SourceFormat.yaml, filename="syntax_error.yml", adapter=adapter
+    )
+
+    assert result.valid is False
+    assert result.execution_order is None
+    codes = [d.code for d in result.diagnostics]
+    assert DiagnosticCode.YAML_SYNTAX_ERROR in codes
+
+
+def test_unresolved_dependency_rule(adapter):
+    """Unknown needs targets emit UNRESOLVED_DEPENDENCY without an edge."""
+    source = (FIXTURES / "unresolved_needs.yml").read_text()
+    result = compile_source(
+        source, SourceFormat.yaml, filename="unresolved_needs.yml", adapter=adapter
+    )
+
+    assert result.valid is False
+    assert result.execution_order is None
+    # Must NOT have any dangling edges!
+    assert len(result.graph.edges) == 0
+
+    unresolved_diags = [
+        d for d in result.diagnostics if d.code == DiagnosticCode.UNRESOLVED_DEPENDENCY
+    ]
+    assert len(unresolved_diags) == 1
+    assert "non_existent_job" in unresolved_diags[0].message
+
+
+def test_duplicate_job_id(adapter):
+    source = """
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  build:
+    runs-on: macos-latest
+"""
+    result = compile_source(
+        source, SourceFormat.yaml, filename="dup.yml", adapter=adapter
+    )
+    codes = [d.code for d in result.diagnostics]
+    assert DiagnosticCode.DUPLICATE_NODE_ID in codes
+    # Valid should be false because DUPLICATE_NODE_ID is an error
+    assert result.valid is False
+
+
+def test_empty_or_no_jobs(adapter):
+    source = "name: Empty Workflow\non: push\n"
+    result = compile_source(
+        source, SourceFormat.yaml, filename="empty.yml", adapter=adapter
+    )
+    assert result.valid is True
+    assert len(result.graph.nodes) == 0
+    assert len(result.graph.edges) == 0
+    assert any(
+        d.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT for d in result.diagnostics
+    )
+
+
+def test_unsupported_needs_construct(adapter):
+    source = """
+jobs:
+  jobA:
+    runs-on: ubuntu-latest
+    needs:
+      nested: bad_value
+"""
+    result = compile_source(
+        source, SourceFormat.yaml, filename="bad_needs.yml", adapter=adapter
+    )
+    assert any(
+        d.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT for d in result.diagnostics
+    )
+    # When unsupported construct exists, execution_order is withheld
+    assert result.execution_order is None

@@ -1,0 +1,4 @@
+name: Invalid YAML
+jobs:
+  build:
+    runs-on: [invalid yaml syntax here: {

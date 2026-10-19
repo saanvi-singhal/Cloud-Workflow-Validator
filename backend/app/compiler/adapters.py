@@ -64,6 +64,8 @@ _REGISTRY: dict[SourceFormat, SourceAdapter] = {}
 # Parser owners add their module here (or call register_adapter themselves).
 BUILTIN_ADAPTER_MODULES: dict[SourceFormat, str] = {
     SourceFormat.terraform: "app.parsers.terraform",
+    SourceFormat.yaml: "app.parsers.yaml",
+    SourceFormat.dockerfile: "app.parsers.dockerfile",
 }
 
 

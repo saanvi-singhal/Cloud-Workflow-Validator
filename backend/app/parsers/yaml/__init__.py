@@ -10,9 +10,10 @@ import io
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import MarkedYAMLError
 
-from app.compiler.adapters import ParseResult, register_adapter
+from app.compiler.adapters import ParseResult
 from app.compiler.findings import Finding, make_finding
 from app.compiler.ir import FORMAT_ID_PREFIX, IRGraph, make_node_id, unique_id
 from app.models import (
@@ -105,7 +106,8 @@ class _YamlExtractor:
                     make_finding(
                         DiagnosticCode.DUPLICATE_NODE_ID,
                         Severity.error,
-                        f"Duplicate job '{job_key_str}'; references resolve to the first declaration.",
+                        f"Duplicate job '{job_key_str}'; references "
+                        "resolve to the first declaration.",
                         loc,
                         node_ids=(base_id, node_id),
                         details={"job": job_key_str},
@@ -157,7 +159,8 @@ class _YamlExtractor:
                     make_finding(
                         DiagnosticCode.UNSUPPORTED_CONSTRUCT,
                         Severity.warning,
-                        f"Unsupported 'needs' specification for job '{job_key_str}': {needs_raw!r}.",
+                        f"Unsupported 'needs' specification for '{job_key_str}': "
+                        f"{needs_raw!r}.",
                         needs_loc,
                         node_ids=(target_id,),
                     )
@@ -175,7 +178,8 @@ class _YamlExtractor:
                         make_finding(
                             DiagnosticCode.UNRESOLVED_DEPENDENCY,
                             Severity.error,
-                            f"Job '{job_key_str}' has unresolved dependency '{needed_job}'.",
+                            f"Job '{job_key_str}' has unresolved dependency "
+                            f"'{needed_job}'.",
                             needs_loc,
                             node_ids=(target_id,),
                             details={
@@ -206,8 +210,32 @@ class YamlAdapter:
 
     def parse(self, source: str, filename: str | None) -> ParseResult:
         yaml = YAML(typ="rt")
+        duplicate_findings: list[Finding] = []
         try:
             parsed = yaml.load(io.StringIO(source))
+        except DuplicateKeyError as exc:
+            loc: SourceLocation | None = None
+            if exc.problem_mark is not None:
+                loc = SourceLocation(
+                    file=filename,
+                    start_line=exc.problem_mark.line + 1,
+                    start_column=exc.problem_mark.column + 1,
+                )
+            duplicate_findings.append(
+                make_finding(
+                    DiagnosticCode.DUPLICATE_NODE_ID,
+                    Severity.error,
+                    f"Duplicate key in YAML: {exc.problem}",
+                    loc,
+                )
+            )
+            # Re-parse allowing duplicate keys so graph extraction can continue
+            yaml_dup = YAML(typ="rt")
+            yaml_dup.allow_duplicate_keys = True
+            try:
+                parsed = yaml_dup.load(io.StringIO(source))
+            except Exception:
+                return ParseResult(ir=None, findings=duplicate_findings)
         except MarkedYAMLError as exc:
             loc: SourceLocation | None = None
             if exc.problem_mark is not None:
@@ -236,7 +264,7 @@ class YamlAdapter:
         ir = extractor.extract(parsed)
         return ParseResult(
             ir=ir,
-            findings=extractor.findings,
+            findings=[*duplicate_findings, *extractor.findings],
             dependency_analysis_complete=extractor.complete,
         )
 

@@ -1,0 +1,8 @@
+name: Unresolved Needs
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    needs: non_existent_job
+    steps:
+      - run: echo test

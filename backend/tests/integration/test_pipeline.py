@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from app.compiler.adapters import (
+    BUILTIN_ADAPTER_MODULES,
     AdapterNotAvailableError,
     ParseResult,
     get_adapter,
@@ -182,8 +183,9 @@ def test_registry_round_trip():
         unregister_adapter(SourceFormat.yaml)
 
 
-def test_missing_adapter_raises_clear_error():
+def test_missing_adapter_raises_clear_error(monkeypatch):
     unregister_adapter(SourceFormat.dockerfile)
+    monkeypatch.delitem(BUILTIN_ADAPTER_MODULES, SourceFormat.dockerfile, raising=False)
     with pytest.raises(AdapterNotAvailableError):
         get_adapter(SourceFormat.dockerfile)
 

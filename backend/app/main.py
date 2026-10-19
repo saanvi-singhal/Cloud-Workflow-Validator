@@ -12,7 +12,10 @@ def create_app() -> FastAPI:
     """Instantiate and configure the FastAPI application."""
     app = FastAPI(
         title="Cloud-Workflow-Validator Backend",
-        description="Compiler-based static validator for cloud workflows, Dockerfiles, and Terraform configurations",
+        description=(
+            "Compiler-based static validator for cloud workflows, "
+            "Dockerfiles, and Terraform configurations"
+        ),
         version="0.1.0",
     )
 

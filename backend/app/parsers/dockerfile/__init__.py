@@ -13,7 +13,7 @@ from typing import Any
 
 from dockerfile_parse import DockerfileParser
 
-from app.compiler.adapters import ParseResult, register_adapter
+from app.compiler.adapters import ParseResult
 from app.compiler.findings import Finding, make_finding
 from app.compiler.ir import FORMAT_ID_PREFIX, IRGraph, make_node_id, unique_id
 from app.models import (
@@ -137,7 +137,10 @@ class _DockerfileExtractor:
                             Severity.error,
                             f"Duplicate build stage alias '{raw_alias}'.",
                             loc,
-                            node_ids=(self.alias_to_stage[alias_lower].node_id, node_id),
+                            node_ids=(
+                                self.alias_to_stage[alias_lower].node_id,
+                                node_id,
+                            ),
                             details={"alias": raw_alias},
                         )
                     )
@@ -173,6 +176,23 @@ class _DockerfileExtractor:
                 self.alias_to_stage[alias_lower] = stage_info
 
             stage_idx += 1
+
+        # Collect instructions per stage for metadata
+        stage_instructions: list[list[str]] = [[] for _ in range(len(self.stages))]
+        curr_idx = -1
+        for entry in structure:
+            instruction = entry.get("instruction", "").upper()
+            if instruction == "FROM":
+                curr_idx += 1
+            if 0 <= curr_idx < len(stage_instructions):
+                content = entry.get("content", "").strip()
+                if content:
+                    stage_instructions[curr_idx].append(content)
+
+        for i, node in enumerate(self.nodes):
+            updated_meta = dict(node.metadata)
+            updated_meta["instructions"] = stage_instructions[i]
+            self.nodes[i] = node.model_copy(update={"metadata": updated_meta})
 
         # Pass 2: Connect dependencies
         # 2a: FROM <stage_name> referencing previous stage
@@ -224,7 +244,8 @@ class _DockerfileExtractor:
                                 make_finding(
                                     DiagnosticCode.UNRESOLVED_DEPENDENCY,
                                     Severity.error,
-                                    f"COPY --from references invalid stage index '{from_clean}'.",
+                                    f"COPY --from references invalid index "
+                                    f"'{from_clean}'.",
                                     loc,
                                     node_ids=(current_stage.node_id,),
                                     details={"from": from_clean},
@@ -236,19 +257,19 @@ class _DockerfileExtractor:
                         if target_lower in self.alias_to_stage:
                             dep_stage = self.alias_to_stage[target_lower]
                         else:
-                            # If it looks like an external image (e.g. contains / or :), Docker allows --from=image:tag
+                            # External image reference (e.g. image:tag) is allowed
                             if "/" in from_clean or ":" in from_clean:
-                                # External image reference in COPY --from is valid in BuildKit
                                 continue
                             else:
                                 # Unresolved stage reference!
-                                # CRUCIAL RULE: Do NOT create an edge to a non-existent node.
+                                # DO NOT create an edge to a non-existent node.
                                 known = sorted(self.alias_to_stage.keys())
                                 self.findings.append(
                                     make_finding(
                                         DiagnosticCode.UNRESOLVED_DEPENDENCY,
                                         Severity.error,
-                                        f"COPY --from references unknown stage or image '{from_clean}'.",
+                                        f"COPY --from references unknown stage "
+                                        f"'{from_clean}'.",
                                         loc,
                                         node_ids=(current_stage.node_id,),
                                         details={
