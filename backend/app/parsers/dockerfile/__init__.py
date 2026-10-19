@@ -8,6 +8,7 @@ Constructs stage nodes and dependencies between stages:
 
 from __future__ import annotations
 
+import io
 import re
 from typing import Any
 
@@ -305,8 +306,10 @@ class DockerfileAdapter:
     format = SourceFormat.dockerfile
 
     def parse(self, source: str, filename: str | None) -> ParseResult:
-        dfp = DockerfileParser()
-        dfp.content = source
+        # Parse from memory. Without fileobj, dockerfile-parse reads and writes
+        # ./Dockerfile in the working directory, which would overwrite a real
+        # file and mix up concurrent requests.
+        dfp = DockerfileParser(fileobj=io.BytesIO(source.encode("utf-8")))
 
         try:
             structure = dfp.structure

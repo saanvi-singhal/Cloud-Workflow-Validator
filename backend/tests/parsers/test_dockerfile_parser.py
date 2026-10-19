@@ -125,3 +125,16 @@ RUN echo extended
     edges = [(e.source, e.target) for e in result.graph.edges]
     nodes_by_label = {n.label: n for n in result.graph.nodes}
     assert (nodes_by_label["empty"].id, nodes_by_label["extended"].id) in edges
+
+
+def test_parse_does_not_touch_the_filesystem(adapter, tmp_path, monkeypatch):
+    # dockerfile-parse reads and writes ./Dockerfile unless given a file object.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM keep-me\n")
+
+    result = adapter.parse("FROM alpine AS base\nRUN echo hi\n", None)
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Dockerfile"]
+    assert (tmp_path / "Dockerfile").read_text() == "FROM keep-me\n"
+    assert result.ir is not None
+    assert result.ir.nodes[0].metadata["base_image"] == "alpine"
