@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import app, create_app
 from app.models import DiagnosticCode
 
 client = TestClient(app)
@@ -114,3 +114,31 @@ def test_validate_oversized_payload_returns_413(monkeypatch):
     response = client.post("/api/v1/validate", json=payload)
     assert response.status_code == 413
     assert response.json()["detail"]["code"] == "SOURCE_TOO_LARGE"
+
+
+def _preflight(test_client: TestClient, origin: str):
+    return test_client.options(
+        "/api/v1/validate",
+        headers={"Origin": origin, "Access-Control-Request-Method": "POST"},
+    )
+
+
+def test_cors_allows_only_listed_origins():
+    allowed = _preflight(client, "http://localhost:5173")
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "access-control-allow-credentials" not in allowed.headers
+
+    denied = _preflight(client, "https://evil.example")
+    assert "access-control-allow-origin" not in denied.headers
+
+
+def test_cors_origins_come_from_environment(monkeypatch):
+    monkeypatch.setenv("ALLOWED_ORIGINS", " https://app.example , ")
+    configured = TestClient(create_app())
+
+    ok = _preflight(configured, "https://app.example")
+    assert ok.headers["access-control-allow-origin"] == "https://app.example"
+    assert (
+        "access-control-allow-origin"
+        not in _preflight(configured, "http://localhost:5173").headers
+    )
