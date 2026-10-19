@@ -1,33 +1,23 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import type { AnalysisResult } from './types';
+import type { AnalysisResult, Diagnostic, SourceFormat } from './types';
 import { analyze } from './api';
+import { formatLocation, getStatus, isPartial, selectionRange, type StatusTone } from './analysis';
 import DependencyGraph from './components/DependencyGraph';
+import terraformSample from './samples/main.tf?raw';
+import dockerfileSample from './samples/Dockerfile?raw';
+import yamlSample from './samples/ci.yml?raw';
 
-const SAMPLES: Record<string, string> = {
-  terraform: `resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-}
+// The same files are used to generate the mocks (frontend/scripts/generate_mocks.py).
+const SAMPLES: Record<SourceFormat, string> = {
+  terraform: terraformSample,
+  dockerfile: dockerfileSample,
+  yaml: yamlSample,
+};
 
-resource "aws_subnet" "app" {
-  vpc_id = aws_vpc.main.id
-  tags   = { vpc = aws_vpc.mian.id }
-}`,
-  dockerfile: `FROM node:20 AS build
-WORKDIR /app
-COPY . .
-RUN npm ci && npm run build
-
-FROM nginx:latest
-COPY --from=build /app/dist /usr/share/nginx/html`,
-  yaml: `tasks:
-  build:
-    run: npm run build
-  test:
-    needs: [build]
-    run: npm test
-  deploy:
-    needs: [test]
-    run: ./deploy.sh`,
+const STATUS_STYLES: Record<StatusTone, string> = {
+  valid: 'bg-green-100 text-green-700',
+  warning: 'bg-amber-100 text-amber-700',
+  error: 'bg-red-100 text-red-700',
 };
 
 const FEATURES = [
@@ -51,7 +41,7 @@ const SEVERITY_STYLES: Record<string, { card: string; title: string }> = {
   },
 };
 
-function detectLanguage(fileName: string): string | null {
+function detectLanguage(fileName: string): SourceFormat | null {
   const name = fileName.toLowerCase();
   if (name.endsWith('.tf')) return 'terraform';
   if (name.startsWith('dockerfile') || name.endsWith('.dockerfile')) return 'dockerfile';
@@ -59,15 +49,8 @@ function detectLanguage(fileName: string): string | null {
   return null;
 }
 
-function getStatus(result: AnalysisResult) {
-  const hasError = result.diagnostics.some(d => d.severity === 'error');
-  if (hasError) return { label: 'Issues found', style: 'bg-red-100 text-red-700' };
-  if (result.diagnostics.length > 0) return { label: 'Warnings', style: 'bg-amber-100 text-amber-700' };
-  return { label: 'Valid', style: 'bg-green-100 text-green-700' };
-}
-
 export default function App() {
-  const [language, setLanguage] = useState('terraform');
+  const [language, setLanguage] = useState<SourceFormat>('terraform');
   const [code, setCode] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +72,7 @@ export default function App() {
     setResult(null);
 
     try {
-      const data = await analyze(language, code);
+      const data = await analyze(language, code, fileName || undefined);
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
@@ -119,25 +102,22 @@ export default function App() {
     e.target.value = '';
   }
 
-  function jumpToLine(line: number) {
+  function jumpTo(location: Diagnostic['source_location']) {
     const el = textareaRef.current;
-    if (!el) return;
-    const lines = code.split('\n');
-    const start = lines
-      .slice(0, line - 1)
-      .reduce((sum, l) => sum + l.length + 1, 0);
-    const end = start + (lines[line - 1]?.length ?? 0);
+    const range = selectionRange(code, location);
+    if (!el || !range || location?.start_line == null) return;
     el.focus();
-    el.setSelectionRange(start, end);
-    el.scrollTop = Math.max(0, (line - 3) * 20);
+    el.setSelectionRange(range.start, range.end); // end_column is exclusive, like this API
+    el.scrollTop = Math.max(0, (location.start_line - 3) * 20);
   }
 
   const status = result ? getStatus(result) : null;
+  const partial = result ? isPartial(result) : false;
 
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-linear-to-r from-slate-900 via-indigo-900 to-slate-900 px-8 py-12 text-center text-white">
-        <h1 className="text-4xl font-bold">Cloud Workflow Analyzer</h1>
+        <h1 className="text-4xl font-bold">Cloud Workflow Validator</h1>
         <p className="mx-auto mt-3 max-w-xl text-lg text-indigo-100">
           Analyze configuration dependencies before deployment.
         </p>
@@ -161,7 +141,7 @@ export default function App() {
                 Input format
                 <select
                   value={language}
-                  onChange={e => setLanguage(e.target.value)}
+                  onChange={e => setLanguage(e.target.value as SourceFormat)}
                   className="mt-1 block w-48 rounded-md border border-slate-300 p-2"
                 >
                   <option value="terraform">Terraform</option>
@@ -248,11 +228,19 @@ export default function App() {
             </section>
           ) : (
             <section className="rounded-xl bg-white p-6 shadow">
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${status.style}`}>
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${STATUS_STYLES[status.tone]}`}>
                 {status.label}
               </span>
 
-              {result.graph && <DependencyGraph result={result} />}
+              {partial && (
+                <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                  <span className="font-semibold">Partial analysis.</span> Some constructs could not be
+                  analysed, so the graph may be missing dependencies. See the unsupported-construct
+                  warnings below.
+                </div>
+              )}
+
+              <DependencyGraph result={result} />
 
               <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
               {result.diagnostics.length === 0 && (
@@ -261,17 +249,21 @@ export default function App() {
               <ul className="mt-2 space-y-2">
                 {result.diagnostics.map((d, i) => {
                   const s = SEVERITY_STYLES[d.severity] ?? SEVERITY_STYLES.info;
+                  const where = formatLocation(d.source_location);
                   return (
                     <li
                       key={i}
-                      onClick={() => jumpToLine(d.source_location.start_line)}
-                      className={`cursor-pointer rounded-md border p-3 text-sm ${s.card}`}
+                      onClick={where ? () => jumpTo(d.source_location) : undefined}
+                      className={`rounded-md border p-3 text-sm ${s.card} ${where ? 'cursor-pointer' : ''}`}
                     >
                       <div className={`font-semibold ${s.title}`}>
-                        {d.severity.toUpperCase()} · {d.code} · line {d.source_location.start_line}
+                        {d.severity.toUpperCase()} · {d.code}
+                        {where && ` · ${where}`}
                       </div>
                       <div className="mt-1 text-slate-700">{d.message}</div>
-                      <div className="mt-1 text-xs text-slate-500">Click to jump to this line</div>
+                      {where && (
+                        <div className="mt-1 text-xs text-slate-500">Click to jump to this location</div>
+                      )}
                     </li>
                   );
                 })}
@@ -285,9 +277,22 @@ export default function App() {
                   <div className="font-semibold text-indigo-800">{r.title}</div>
                   <div className="mt-1 text-slate-700">{r.explanation}</div>
                   {r.proposed_change && (
-                    <pre className="mt-2 rounded bg-slate-900 p-2 text-xs text-green-300">
-                      {r.proposed_change.preview}
-                    </pre>
+                    <div className="mt-2">
+                      <div className="text-slate-700">
+                        <span className="font-medium">Suggested change:</span>{' '}
+                        {r.proposed_change.description}
+                      </div>
+                      {r.proposed_change.preview !== null && (
+                        <pre className="mt-2 rounded bg-slate-900 p-2 text-xs text-green-300">
+                          {r.proposed_change.preview}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                  {r.fix_kind === 'judgment' && (
+                    <div className="mt-2 text-xs text-slate-500">
+                      Review before applying: this tool never changes your files.
+                    </div>
                   )}
                 </div>
               ))}
