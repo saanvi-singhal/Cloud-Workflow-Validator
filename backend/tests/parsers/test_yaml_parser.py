@@ -27,22 +27,22 @@ def test_valid_yaml_workflow_parsing(adapter):
     assert len(result.graph.nodes) == 3
 
     node_ids = {n.id for n in result.graph.nodes}
-    assert "gha:task:build" in node_ids
-    assert "gha:task:test" in node_ids
-    assert "gha:task:deploy" in node_ids
+    assert "gha:job:build" in node_ids
+    assert "gha:job:test" in node_ids
+    assert "gha:job:deploy" in node_ids
 
     # Check edges (prerequisites point to dependents)
     # build -> test, build -> deploy, test -> deploy
     edges = [(e.source, e.target) for e in result.graph.edges]
-    assert ("gha:task:build", "gha:task:test") in edges
-    assert ("gha:task:build", "gha:task:deploy") in edges
-    assert ("gha:task:test", "gha:task:deploy") in edges
+    assert ("gha:job:build", "gha:job:test") in edges
+    assert ("gha:job:build", "gha:job:deploy") in edges
+    assert ("gha:job:test", "gha:job:deploy") in edges
 
     # Execution order must respect dependencies
     assert result.execution_order is not None
     order = result.execution_order
-    assert order.index("gha:task:build") < order.index("gha:task:test")
-    assert order.index("gha:task:test") < order.index("gha:task:deploy")
+    assert order.index("gha:job:build") < order.index("gha:job:test")
+    assert order.index("gha:job:test") < order.index("gha:job:deploy")
 
 
 def test_yaml_syntax_error(adapter):

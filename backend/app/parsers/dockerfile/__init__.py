@@ -119,14 +119,10 @@ class _DockerfileExtractor:
             raw_alias = match.group(2)
             is_final_stage = stage_idx == total_stages - 1
 
-            # Determine stage label and base ID
-            if raw_alias:
-                label = raw_alias
-                base_id = make_node_id(ID_PREFIX, "stage", raw_alias)
-            else:
-                label = f"stage-{stage_idx}"
-                base_id = make_node_id(ID_PREFIX, "stage", f"stage_{stage_idx}")
-
+            # IDs use the stage index (docs/compiler-core.md): stages may be
+            # unnamed and aliases may repeat. The alias goes in label/metadata.
+            label = raw_alias or f"stage-{stage_idx}"
+            base_id = make_node_id(ID_PREFIX, "stage", str(stage_idx))
             node_id = unique_id(base_id, self.taken_ids)
 
             if raw_alias:

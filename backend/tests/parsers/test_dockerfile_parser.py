@@ -138,3 +138,15 @@ def test_parse_does_not_touch_the_filesystem(adapter, tmp_path, monkeypatch):
     assert (tmp_path / "Dockerfile").read_text() == "FROM keep-me\n"
     assert result.ir is not None
     assert result.ir.nodes[0].metadata["base_image"] == "alpine"
+
+
+def test_stage_ids_use_the_stage_index(adapter):
+    source = "FROM alpine AS base\nRUN echo\n\nFROM base\nRUN echo\n"
+    result = adapter.parse(source, None)
+
+    assert result.ir is not None
+    assert [(n.id, n.label) for n in result.ir.nodes] == [
+        ("docker:stage:0", "base"),
+        ("docker:stage:1", "stage-1"),
+    ]
+    assert result.ir.nodes[0].metadata["alias"] == "base"

@@ -55,7 +55,7 @@ jobs:
     assert data["format"] == "yaml"
     assert len(data["graph"]["nodes"]) == 2
     assert len(data["graph"]["edges"]) == 1
-    assert data["execution_order"] == ["gha:task:build", "gha:task:test"]
+    assert data["execution_order"] == ["gha:job:build", "gha:job:test"]
 
 
 def test_validate_dockerfile_success():

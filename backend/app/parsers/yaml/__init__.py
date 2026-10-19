@@ -98,7 +98,7 @@ class _YamlExtractor:
                 job_key_str = job_key
 
             loc = _extract_location(jobs, job_key, self.filename)
-            base_id = make_node_id(ID_PREFIX, "task", job_key_str)
+            base_id = make_node_id(ID_PREFIX, "job", job_key_str)
             node_id = unique_id(base_id, self.taken_ids)
 
             if node_id != base_id:
