@@ -1,0 +1,25 @@
+{
+  "valid": false,
+  "format": "dockerfile",
+  "diagnostics": [
+    {
+      "code": "UNPINNED_IMAGE_TAG",
+      "severity": "warning",
+      "message": "Base image 'nginx:latest' uses the 'latest' tag, so builds are not reproducible.",
+      "source_location": { "file": "Dockerfile", "start_line": 6, "start_column": 1, "end_line": 6, "end_column": 18 }
+    }
+  ],
+  "execution_order": ["build", "stage-1"],
+  "recommendations": [
+    {
+      "id": "PIN_IMAGE_TAG:0",
+      "title": "Pin the image version",
+      "explanation": "Using a specific version makes your build repeatable and avoids surprise changes.",
+      "proposed_change": {
+        "description": "Use a specific nginx version.",
+        "preview": "- FROM nginx:latest\n+ FROM nginx:1.27"
+      },
+      "related_node_ids": []
+    }
+  ]
+}

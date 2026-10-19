@@ -1,6 +1,14 @@
 import { useState } from 'react';
-import mock from './mocks/terraform.json';
+import terraformMock from './mocks/terraform.json';
+import dockerfileMock from './mocks/dockerfile.json';
+import yamlMock from './mocks/yaml.json';
 import type { AnalysisResult } from './types';
+
+const MOCKS: Record<string, AnalysisResult> = {
+  terraform: terraformMock as unknown as AnalysisResult,
+  dockerfile: dockerfileMock as unknown as AnalysisResult,
+  yaml: yamlMock as unknown as AnalysisResult,
+};
 
 const SAMPLES: Record<string, string> = {
   terraform: `resource "aws_vpc" "main" {
@@ -41,7 +49,7 @@ export default function App() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
   function handleAnalyze() {
-    setResult(mock as unknown as AnalysisResult);
+    setResult(MOCKS[language]);
   }
 
   return (

@@ -1,0 +1,7 @@
+{
+  "valid": true,
+  "format": "yaml",
+  "diagnostics": [],
+  "execution_order": ["build", "test", "deploy"],
+  "recommendations": []
+}
