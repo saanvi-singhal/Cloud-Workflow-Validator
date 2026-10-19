@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import mock from './mocks/terraform.json';
+import type { AnalysisResult } from './types';
 
 const SAMPLES: Record<string, string> = {
   terraform: `resource "aws_vpc" "main" {
@@ -36,10 +38,10 @@ const FEATURES = [
 export default function App() {
   const [language, setLanguage] = useState('terraform');
   const [code, setCode] = useState('');
+  const [result, setResult] = useState<AnalysisResult | null>(null);
 
   function handleAnalyze() {
-    console.log('Language:', language);
-    console.log('Code:', code);
+    setResult(mock as unknown as AnalysisResult);
   }
 
   return (
@@ -90,6 +92,7 @@ export default function App() {
               onChange={e => setCode(e.target.value)}
               placeholder="Paste your configuration here"
               rows={14}
+              spellCheck={false}
               className="mt-4 w-full rounded-md border border-slate-300 p-3 font-mono text-sm"
             />
 
@@ -101,15 +104,52 @@ export default function App() {
             </button>
           </section>
 
-          <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center">
-            <div className="text-5xl">🕸️</div>
-            <h2 className="mt-3 text-lg font-semibold text-slate-800">
-              Your dependency graph will appear here
-            </h2>
-            <p className="mt-1 max-w-xs text-sm text-slate-500">
-              Choose a format, load a sample or paste your own code, then click Analyze.
-            </p>
-          </section>
+          {result === null ? (
+            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center">
+              <div className="text-5xl">🕸️</div>
+              <h2 className="mt-3 text-lg font-semibold text-slate-800">
+                Your dependency graph will appear here
+              </h2>
+              <p className="mt-1 max-w-xs text-sm text-slate-500">
+                Choose a format, load a sample or paste your own code, then click Analyze.
+              </p>
+            </section>
+          ) : (
+            <section className="rounded-xl bg-white p-6 shadow">
+              <span
+                className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                  result.valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                }`}
+              >
+                {result.valid ? 'Valid' : 'Issues found'}
+              </span>
+
+              <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
+              <ul className="mt-2 space-y-2">
+                {result.diagnostics.map((d, i) => (
+                  <li key={i} className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">
+                    <div className="font-semibold text-red-700">
+                      {d.severity.toUpperCase()} · {d.code} · line {d.source_location.start_line}
+                    </div>
+                    <div className="mt-1 text-slate-700">{d.message}</div>
+                  </li>
+                ))}
+              </ul>
+
+              <h2 className="mt-5 font-semibold text-slate-900">Suggested fixes</h2>
+              {result.recommendations.map(r => (
+                <div key={r.id} className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm">
+                  <div className="font-semibold text-indigo-800">{r.title}</div>
+                  <div className="mt-1 text-slate-700">{r.explanation}</div>
+                  {r.proposed_change && (
+                    <pre className="mt-2 rounded bg-slate-900 p-2 text-xs text-green-300">
+                      {r.proposed_change.preview}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
         </div>
       </main>
     </div>
