@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import terraformMock from './mocks/terraform.json';
 import dockerfileMock from './mocks/dockerfile.json';
 import yamlMock from './mocks/yaml.json';
@@ -44,14 +44,45 @@ const FEATURES = [
   { icon: '🛠️', title: 'Suggested fixes', text: 'Get clear recommendations with a preview of the change.' },
 ];
 
+function detectLanguage(fileName: string): string | null {
+  const name = fileName.toLowerCase();
+  if (name.endsWith('.tf')) return 'terraform';
+  if (name.startsWith('dockerfile') || name.endsWith('.dockerfile')) return 'dockerfile';
+  if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml';
+  return null;
+}
+
 export default function App() {
   const [language, setLanguage] = useState('terraform');
   const [code, setCode] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [uploadNote, setUploadNote] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleAnalyze() {
     setResult(MOCKS[language]);
+  }
+
+  async function handleFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const text = await file.text();
+    setCode(text);
+    setFileName(file.name);
+    setResult(null);
+
+    const detected = detectLanguage(file.name);
+    if (detected) {
+      setLanguage(detected);
+      setUploadNote('');
+    } else {
+      setUploadNote("Couldn't tell the format from the file name. Please choose it above.");
+    }
+
+    e.target.value = '';
   }
 
   function jumpToLine(line: number) {
@@ -102,19 +133,46 @@ export default function App() {
                   <option value="yaml">YAML</option>
                 </select>
               </label>
-              <button
-                onClick={() => setCode(SAMPLES[language])}
-                className="text-sm font-medium text-indigo-600 hover:underline"
-              >
-                Load sample
-              </button>
+              <div className="flex gap-4 text-sm font-medium">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-indigo-600 hover:underline"
+                >
+                  Upload file
+                </button>
+                <button
+                  onClick={() => {
+                    setCode(SAMPLES[language]);
+                    setFileName('');
+                    setUploadNote('');
+                  }}
+                  className="text-indigo-600 hover:underline"
+                >
+                  Load sample
+                </button>
+              </div>
             </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".tf,.yml,.yaml,.dockerfile,Dockerfile,*"
+              onChange={handleFile}
+              className="hidden"
+            />
+
+            {fileName && (
+              <p className="mt-3 text-xs text-slate-500">Loaded file: {fileName}</p>
+            )}
+            {uploadNote && (
+              <p className="mt-1 text-xs text-amber-600">{uploadNote}</p>
+            )}
 
             <textarea
               ref={textareaRef}
               value={code}
               onChange={e => setCode(e.target.value)}
-              placeholder="Paste your configuration here"
+              placeholder="Paste your configuration here, or upload a file"
               rows={14}
               spellCheck={false}
               className="mt-4 w-full rounded-md border border-slate-300 p-3 font-mono text-sm leading-5"
@@ -135,7 +193,7 @@ export default function App() {
                 Your dependency graph will appear here
               </h2>
               <p className="mt-1 max-w-xs text-sm text-slate-500">
-                Choose a format, load a sample or paste your own code, then click Analyze.
+                Choose a format, load a sample, upload a file or paste your own code, then click Analyze.
               </p>
             </section>
           ) : (
