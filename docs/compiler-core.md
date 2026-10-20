@@ -103,7 +103,7 @@ The format is `<format prefix>:<kind>:<identity>`. No UUIDs or hashes. If the sa
 | `DISCONNECTED_COMPONENT` | info (per policy) | `reachability.py` | A multi-node component not connected to the main one |
 | `UNREACHABLE_NODE` | warning | `reachability.py` | Not needed by the format's root (Dockerfile: the final stage) |
 | `UNSUPPORTED_CONSTRUCT` | warning, or info | parsers | warning = may hide dependencies (makes `execution_order` null); info = valid construct not modelled in the graph |
-| `SECURITY_RULE_VIOLATION` | warning | rules | Message is prefixed with the rule id, e.g. `[TF_S3_PUBLIC_ACL]` |
+| `SECURITY_RULE_VIOLATION` | warning (Dockerfile rules: error, warning or info) | rules | Message is prefixed with the rule id, e.g. `[TF_S3_PUBLIC_ACL]`, `[DF_RUNS_AS_ROOT]` |
 | `INVALID_GRAPH` | error | `validation.py` | IR inconsistency (dangling edge endpoint, edge type not allowed for the format): a parser bug |
 | `SOURCE_TOO_LARGE` | error | API layer | Reserved for the API size limit; not produced by the core |
 
@@ -160,6 +160,22 @@ These are literal-only: a value that comes from a variable or expression never t
 | `TF_HARDCODED_SECRET` | `password`, `secret_key`, `access_key`, `token`, `api_key`, … is a non-empty string literal (resource/data/module/provider), or a secret-named variable has a literal default |
 | `TF_DB_PUBLICLY_ACCESSIBLE` | `aws_db_instance`/`aws_rds_cluster_instance` has `publicly_accessible = true` |
 
+## 8a. Dockerfile rules
+
+`app/rules/dockerfile_rules.py`, called by the Dockerfile adapter. The rules read instruction text only. Nothing is built, pulled or executed, and a value containing a `$` variable is skipped rather than guessed. Severity: **error** when the build itself will fail, **warning** for security and reproducibility risks, **info** for image size and build-cache advice. Every finding is linked to its stage node. This is not a comprehensive linter.
+
+| rule_id | Severity | Fires when |
+|---|---|---|
+| `DF_APT_MISSING_YES` | error | `apt-get`/`apt` install, upgrade or remove without `-y` (also accepts `--yes`, `--assume-yes`, `-qq`, combined flags like `-qy`); the build cannot answer the prompt and aborts |
+| `DF_UNPINNED_BASE_IMAGE` | warning | `FROM` an image with no tag or `:latest` and no `@sha256` digest (earlier stages, `scratch` and `$VAR` images are skipped) |
+| `DF_RUNS_AS_ROOT` | warning | the final stage has no `USER`, or its last `USER` is `root`/`0` |
+| `DF_APT_UPDATE_ALONE` | warning | a `RUN` with `apt-get update` but no install in the same `RUN` |
+| `DF_APT_UPGRADE` | warning | `apt-get upgrade`, `dist-upgrade` or `full-upgrade` |
+| `DF_ADD_LOCAL_FILE` | warning | `ADD` of a local file that is not a tar archive (URLs and git sources are skipped) |
+| `DF_COPY_ALL_BEFORE_INSTALL` | info | `COPY . .` (or `ADD .`) before a dependency install (`npm install/ci`, `pip install -r`, `poetry install`, …) in the same stage |
+| `DF_CONSECUTIVE_RUN` | info | two or more `RUN` in a row in one stage; reported once per group, at its first `RUN` |
+| `DF_APT_UNPINNED_PACKAGES` | info | `apt-get install` packages without `=version` |
+
 ## 9. Recommendations
 
 The engine walks findings in final sorted order, so `diagnostic_index` is the index into `diagnostics`, and `id = "<rule_id>:<diagnostic_index>"`. In v1 every recommendation is `fix_kind: "judgment"`, because none can be proven safe. `preview` is set only when the exact edit is known. Nothing is ever applied to source.
@@ -173,6 +189,7 @@ The engine walks findings in final sorted order, so `diagnostic_index` is the in
 | `UNREACHABLE_NODE` | `REVIEW_UNUSED_NODE` | None |
 | `UNSUPPORTED_CONSTRUCT` (warning only) | `UNSUPPORTED_LIMITATION` | None |
 | `INVALID_GRAPH` | `REPORT_INTERNAL_INCONSISTENCY` | None |
+| `SECURITY_RULE_VIOLATION` (Dockerfile) | the finding's `DF_*` rule id | Previews for `DF_APT_MISSING_YES` (adds `-y`), `DF_ADD_LOCAL_FILE` (ADD → COPY), `DF_RUNS_AS_ROOT`, `DF_APT_UPDATE_ALONE` and `DF_COPY_ALL_BEFORE_INSTALL` (example edits); description only for the others |
 | `*_SYNTAX_ERROR` | `FIX_SYNTAX_ERROR` | None |
 | `SECURITY_RULE_VIOLATION` | the rule's id | ACL → `private` and public DB → `false` have previews; CIDR and secret changes are description-only |
 

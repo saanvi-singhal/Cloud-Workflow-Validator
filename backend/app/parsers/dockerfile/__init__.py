@@ -27,6 +27,7 @@ from app.models import (
     SourceFormat,
     SourceLocation,
 )
+from app.rules.dockerfile_rules import DockerInstruction, run_dockerfile_rules
 
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.dockerfile]
 
@@ -176,6 +177,30 @@ class _DockerfileExtractor:
                     SourceLocation(file=self.filename, start_line=1, start_column=1),
                 )
             )
+
+    def instructions(self, structure: list[dict[str, Any]]) -> list[DockerInstruction]:
+        """Instructions in source order with their stage, for the rules."""
+        result: list[DockerInstruction] = []
+        stage = -1
+        for entry in structure:
+            keyword = entry.get("instruction", "").upper()
+            if keyword == "COMMENT":
+                continue
+            if keyword == "FROM":
+                stage += 1
+            info = self.stages[stage] if 0 <= stage < len(self.stages) else None
+            result.append(
+                DockerInstruction(
+                    keyword=keyword,
+                    value=entry.get("value", ""),
+                    location=_make_loc(
+                        entry.get("startline"), entry.get("endline"), self.filename
+                    ),
+                    stage_index=info.index if info else None,
+                    node_id=info.node_id if info else None,
+                )
+            )
+        return result
 
     def extract(self, structure: list[dict[str, Any]]) -> IRGraph:
         self._check_instructions(structure)
@@ -413,10 +438,11 @@ class DockerfileAdapter:
 
         extractor = _DockerfileExtractor(filename)
         ir = extractor.extract(structure)
+        rule_findings = run_dockerfile_rules(extractor.instructions(structure))
 
         return ParseResult(
             ir=ir,
-            findings=extractor.findings,
+            findings=[*extractor.findings, *rule_findings],
             dependency_analysis_complete=extractor.complete,
         )
 

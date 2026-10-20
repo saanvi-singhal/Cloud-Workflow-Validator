@@ -324,11 +324,183 @@ def _security_db_public(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _df_apt_missing_yes(finding: Finding, index: int) -> Recommendation:
+    command = finding.details.get("command", "")
+    sub = finding.details.get("subcommand", "install")
+    words = command.split()
+    change = ProposedChange(
+        description=f"Add -y so apt does not wait for confirmation "
+        f"(apt-get {sub} -y ...).",
+        source_location=finding.diagnostic.source_location,
+    )
+    if sub in words:
+        fixed = words[: words.index(sub) + 1] + ["-y"] + words[words.index(sub) + 1 :]
+        change.preview = f"- {command}\n+ {' '.join(fixed)}"
+    return _make(
+        "DF_APT_MISSING_YES",
+        finding,
+        index,
+        "Add -y to the apt command",
+        "Docker builds have no terminal to answer apt's 'Do you want to "
+        "continue?' prompt, so apt aborts and the build fails.",
+        change,
+    )
+
+
+def _df_unpinned_base_image(finding: Finding, index: int) -> Recommendation:
+    image = finding.details.get("image", "the image")
+    return _make(
+        "DF_UNPINNED_BASE_IMAGE",
+        finding,
+        index,
+        "Pin the base image version",
+        f"'{image}' is resolved again on every build, so a new upstream release "
+        "can change or break the image without any change to this file.",
+        ProposedChange(
+            description="Use a specific version tag (for example name:22-slim), "
+            "or a digest (name@sha256:...) for fully reproducible builds. The "
+            "right version cannot be inferred from this file.",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_runs_as_root(finding: Finding, index: int) -> Recommendation:
+    return _make(
+        "DF_RUNS_AS_ROOT",
+        finding,
+        index,
+        "Run the container as a non-root user",
+        "A process running as root inside the container has more power if it is "
+        "compromised. Create or reuse an unprivileged user and switch to it after "
+        "the steps that need root.",
+        ProposedChange(
+            description="Add a USER instruction before CMD/ENTRYPOINT (many base "
+            "images already provide one, e.g. 'node' in node images).",
+            preview="+ RUN useradd --create-home --uid 10001 app\n+ USER app",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_apt_update_alone(finding: Finding, index: int) -> Recommendation:
+    return _make(
+        "DF_APT_UPDATE_ALONE",
+        finding,
+        index,
+        "Run apt-get update and install in one RUN",
+        "The layer with 'apt-get update' is cached, so later builds reuse an old "
+        "package index and installs can fail or get outdated packages.",
+        ProposedChange(
+            description="Merge update, install and cleanup into one RUN.",
+            preview="+ RUN apt-get update \\\n"
+            "+  && apt-get install -y --no-install-recommends <packages> \\\n"
+            "+  && rm -rf /var/lib/apt/lists/*",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_apt_upgrade(finding: Finding, index: int) -> Recommendation:
+    return _make(
+        "DF_APT_UPGRADE",
+        finding,
+        index,
+        "Avoid upgrading all packages in the build",
+        "An upgrade installs whatever is newest at build time, so the same "
+        "Dockerfile produces different images on different days.",
+        ProposedChange(
+            description="Remove the upgrade and use a newer pinned base image; "
+            "install specific package versions if one needs a fix.",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_add_local_file(finding: Finding, index: int) -> Recommendation:
+    value = finding.details.get("value")
+    return _make(
+        "DF_ADD_LOCAL_FILE",
+        finding,
+        index,
+        "Use COPY for local files",
+        "ADD can also fetch URLs and unpack archives, which makes it easy to do "
+        "more than intended. COPY only copies.",
+        ProposedChange(
+            description="Replace ADD with COPY.",
+            preview=f"- ADD {value}\n+ COPY {value}" if value else None,
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_copy_all_before_install(finding: Finding, index: int) -> Recommendation:
+    return _make(
+        "DF_COPY_ALL_BEFORE_INSTALL",
+        finding,
+        index,
+        "Install dependencies before copying the source",
+        "Docker re-runs every step after the first changed layer. Copying only "
+        "the dependency manifest first keeps the install cached until the "
+        "dependencies themselves change.",
+        ProposedChange(
+            description="Copy the manifest, install, then copy everything else "
+            "(example for npm).",
+            preview="+ COPY package.json package-lock.json ./\n"
+            "+ RUN npm ci\n"
+            "  COPY . .",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_consecutive_run(finding: Finding, index: int) -> Recommendation:
+    return _make(
+        "DF_CONSECUTIVE_RUN",
+        finding,
+        index,
+        "Combine related RUN instructions",
+        "Each RUN creates a layer. Deleting files in a later RUN hides them but "
+        "does not remove them from the earlier layer, so the image stays large.",
+        ProposedChange(
+            description="Chain related commands with && in a single RUN, putting "
+            "cleanup in the same RUN as the step that creates the files.",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_apt_unpinned_packages(finding: Finding, index: int) -> Recommendation:
+    packages = finding.details.get("packages", [])
+    return _make(
+        "DF_APT_UNPINNED_PACKAGES",
+        finding,
+        index,
+        "Pin package versions if builds must be reproducible",
+        "Without versions, apt installs whatever the package index offers at "
+        "build time. This is a tradeoff: pinned versions must be updated by hand.",
+        ProposedChange(
+            description="Pin as name=version, e.g. "
+            + ", ".join(f"{p}=<version>" for p in packages[:3]),
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
 SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
     "TF_S3_PUBLIC_ACL": _security_s3_public_acl,
     "TF_SG_OPEN_INGRESS": _security_open_ingress,
     "TF_HARDCODED_SECRET": _security_hardcoded_secret,
     "TF_DB_PUBLICLY_ACCESSIBLE": _security_db_public,
+    "DF_APT_MISSING_YES": _df_apt_missing_yes,
+    "DF_UNPINNED_BASE_IMAGE": _df_unpinned_base_image,
+    "DF_RUNS_AS_ROOT": _df_runs_as_root,
+    "DF_APT_UPDATE_ALONE": _df_apt_update_alone,
+    "DF_APT_UPGRADE": _df_apt_upgrade,
+    "DF_ADD_LOCAL_FILE": _df_add_local_file,
+    "DF_COPY_ALL_BEFORE_INSTALL": _df_copy_all_before_install,
+    "DF_CONSECUTIVE_RUN": _df_consecutive_run,
+    "DF_APT_UNPINNED_PACKAGES": _df_apt_unpinned_packages,
 }
 
 

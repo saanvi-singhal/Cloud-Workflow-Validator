@@ -11,6 +11,15 @@ from app.parsers.dockerfile import DockerfileAdapter
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "dockerfile"
 
 
+def parser_diagnostics(result):
+    """Diagnostics from parsing, without the best-practice rule findings."""
+    return [
+        d
+        for d in result.diagnostics
+        if d.code != DiagnosticCode.SECURITY_RULE_VIOLATION
+    ]
+
+
 @pytest.fixture
 def adapter():
     return DockerfileAdapter()
@@ -26,7 +35,7 @@ def test_single_stage_dockerfile(adapter):
     )
 
     assert result.valid is True
-    assert len(result.diagnostics) == 0
+    assert parser_diagnostics(result) == []
     assert len(result.graph.nodes) == 1
     # Dockerfile execution_order is always None per policy
     assert result.execution_order is None
@@ -48,7 +57,7 @@ def test_multi_stage_dockerfile_and_copy_from(adapter):
     )
 
     assert result.valid is True
-    assert len(result.diagnostics) == 0
+    assert parser_diagnostics(result) == []
     assert len(result.graph.nodes) == 2
 
     # Nodes: builder (stage 0), runner (stage 1)
@@ -185,7 +194,7 @@ def test_unknown_instruction_after_from_is_reported(adapter):
         adapter=adapter,
     )
     assert result.valid is False
-    [diagnostic] = result.diagnostics
+    [diagnostic] = parser_diagnostics(result)
     assert diagnostic.message.startswith("Unknown instruction 'RUNN'")
     loc = diagnostic.source_location
     assert (loc.start_line, loc.start_column, loc.end_column) == (2, 3, 7)
@@ -208,7 +217,7 @@ def test_arg_and_comments_before_from_are_allowed(adapter):
     source = "# syntax=docker/dockerfile:1\nARG VERSION=3.12\nFROM python:${VERSION}\n"
     result = compile_source(source, SourceFormat.dockerfile, adapter=adapter)
     assert result.valid is True
-    assert result.diagnostics == []
+    assert parser_diagnostics(result) == []
 
 
 def test_empty_dockerfile_is_invalid(adapter):
