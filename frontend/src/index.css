@@ -1,1 +1,5 @@
    @import "tailwindcss";
+/* The dependency graph is read-only, so React Flow's connection handles are hidden. */
+.react-flow__handle {
+  opacity: 0;
+}

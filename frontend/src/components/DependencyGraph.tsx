@@ -1,5 +1,15 @@
-import { useMemo } from 'react';
-import { ReactFlow, Background, Controls, MarkerType, type Node, type Edge } from '@xyflow/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ReactFlow,
+  Background,
+  ControlButton,
+  Controls,
+  MarkerType,
+  Position,
+  type Edge,
+  type Node,
+  type ReactFlowInstance,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { AnalysisResult, Severity } from '../types';
@@ -11,8 +21,15 @@ import {
   nodeSeverities,
 } from '../analysis';
 
-const W = 200;
+const MIN_W = 200;
 const H = 44;
+const EDGE = '#64748b';
+
+// Wide enough for the label (12px text is roughly 7px per character), so long
+// Terraform addresses are not cut off.
+function nodeWidth(label: string): number {
+  return Math.max(MIN_W, Math.ceil(label.length * 7.2) + 32);
+}
 
 const NODE_COLORS: Record<Severity | 'none', { border: string; background: string }> = {
   error: { border: '#ef4444', background: '#fef2f2' },
@@ -23,6 +40,28 @@ const NODE_COLORS: Record<Severity | 'none', { border: string; background: strin
 const CYCLE_EDGE = '#ef4444';
 
 export default function DependencyGraph({ result }: { result: AnalysisResult }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Track fullscreen changes from the button and from Esc, and re-fit the graph to the new size.
+  useEffect(() => {
+    function onChange() {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+      requestAnimationFrame(() => flow?.fitView());
+    }
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, [flow]);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void containerRef.current?.requestFullscreen();
+    }
+  }
+
   const { nodes, edges, hasCycle, severitiesShown } = useMemo(() => {
     const graph = result.graph;
     // Cycle membership and severities come from the backend's diagnostics and
@@ -36,19 +75,23 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 110 });
     g.setDefaultEdgeLabel(() => ({}));
-    graph.nodes.forEach(n => g.setNode(n.id, { width: W, height: H }));
+    graph.nodes.forEach(n => g.setNode(n.id, { width: nodeWidth(n.label), height: H }));
     drawable.forEach(e => g.setEdge(e.source, e.target)); // source -> target, never reversed
     dagre.layout(g);
 
     const nodes: Node[] = graph.nodes.map(n => {
       const p = g.node(n.id);
       const colors = NODE_COLORS[severities.get(n.id) ?? 'none'];
+      const width = nodeWidth(n.label);
       return {
         id: n.id,
         data: { label: cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label },
-        position: { x: p.x - W / 2, y: p.y - H / 2 },
+        position: { x: p.x - width / 2, y: p.y - H / 2 },
+        // The layout runs left to right, so edges leave on the right and enter on the left.
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
         style: {
-          width: W,
+          width,
           fontSize: 12,
           border: `2px solid ${colors.border}`,
           background: colors.background,
@@ -64,9 +107,14 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
         target: e.target,
         label: e.label ?? undefined,
         animated: onCycle,
-        style: onCycle ? { stroke: CYCLE_EDGE, strokeWidth: 2 } : undefined,
+        style: { stroke: onCycle ? CYCLE_EDGE : EDGE, strokeWidth: onCycle ? 2 : 1.5 },
         labelStyle: { fontSize: 10 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: onCycle ? CYCLE_EDGE : undefined },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: onCycle ? CYCLE_EDGE : EDGE,
+          width: 18,
+          height: 18,
+        },
       };
     });
 
@@ -83,10 +131,25 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
 
   return (
     <div className="mt-4">
-      <div className="h-80 overflow-hidden rounded-lg border border-slate-200">
-        <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false}>
+      <div ref={containerRef} className="h-80 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false} onInit={setFlow}>
           <Background />
-          <Controls showInteractive={false} />
+          <Controls showInteractive={false}>
+            <ControlButton
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+              aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            >
+              {/* React Flow's stylesheet fills control icons; this one is an outline. */}
+              <svg viewBox="0 0 24 24" style={{ fill: 'none' }} stroke="currentColor" strokeWidth="2.5">
+                {isFullscreen ? (
+                  <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
+                ) : (
+                  <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
+                )}
+              </svg>
+            </ControlButton>
+          </Controls>
         </ReactFlow>
       </div>
 
