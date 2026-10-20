@@ -49,18 +49,6 @@
         "end_line": 27,
         "end_column": 1
       }
-    },
-    {
-      "code": "UNSUPPORTED_CONSTRUCT",
-      "severity": "warning",
-      "message": "Unsupported construct 'dynamic block': iterator scoping. Dependencies inside it are not analysed.",
-      "source_location": {
-        "file": "unsupported_expression.tf",
-        "start_line": 28,
-        "start_column": 3,
-        "end_line": 33,
-        "end_column": 4
-      }
     }
   ],
   "graph": {
@@ -73,7 +61,7 @@
           "file": "unsupported_expression.tf",
           "start_line": 20,
           "start_column": 1,
-          "end_line": 34,
+          "end_line": 27,
           "end_column": 2
         },
         "metadata": {
@@ -208,24 +196,6 @@
         "start_column": 19,
         "end_line": 27,
         "end_column": 1
-      },
-      "related_node_ids": []
-    },
-    {
-      "id": "UNSUPPORTED_LIMITATION:4",
-      "rule_id": "UNSUPPORTED_LIMITATION",
-      "title": "Analysis is partial here",
-      "explanation": "This construct is not analysed in v1, so dependencies inside it are missing from the graph and the execution order is withheld. The configuration may still be valid; review this part manually.",
-      "diagnostic_code": "UNSUPPORTED_CONSTRUCT",
-      "diagnostic_index": 4,
-      "fix_kind": "judgment",
-      "proposed_change": null,
-      "source_location": {
-        "file": "unsupported_expression.tf",
-        "start_line": 28,
-        "start_column": 3,
-        "end_line": 33,
-        "end_column": 4
       },
       "related_node_ids": []
     }

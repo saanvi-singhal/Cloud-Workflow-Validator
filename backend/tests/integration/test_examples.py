@@ -17,6 +17,7 @@ EXPECTED = {
     "cyclic.tf": (False, DiagnosticCode.DEPENDENCY_CYCLE),
     "unresolved_reference.tf": (False, DiagnosticCode.UNRESOLVED_DEPENDENCY),
     "depends_on.tf": (True, None),
+    "dynamic_blocks.tf": (True, None),
     "unsupported_expression.tf": (True, DiagnosticCode.UNSUPPORTED_CONSTRUCT),
     "security_findings.tf": (True, DiagnosticCode.SECURITY_RULE_VIOLATION),
 }

@@ -84,7 +84,7 @@ def test_unsupported_fixture_is_partial_and_has_no_order():
     assert result.valid is True  # partial analysis is not an error...
     assert result.execution_order is None  # ...but no misleading order
     warnings = [d for d in result.diagnostics if d.severity is Severity.warning]
-    assert len(warnings) == 4  # local ref, for expr, heredoc, dynamic
+    assert len(warnings) == 3  # local ref, for expr, heredoc
 
 
 def test_security_fixture():

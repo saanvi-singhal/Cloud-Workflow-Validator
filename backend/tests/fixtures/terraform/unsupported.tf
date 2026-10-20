@@ -24,11 +24,4 @@ resource "aws_instance" "web" {
 #!/bin/sh
 echo ${aws_vpc.main.id}
 EOT
-
-  dynamic "ebs_block_device" {
-    for_each = var.subnet_ids
-    content {
-      device_name = ebs_block_device.value
-    }
-  }
 }

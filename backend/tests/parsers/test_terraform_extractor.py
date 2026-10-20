@@ -182,21 +182,138 @@ def test_provider_meta_argument_and_ignore_changes_are_not_dependencies():
     assert result.ir.edges == [] and result.findings == []
 
 
-def test_replace_triggered_by_and_dynamic_are_unsupported():
+def test_replace_triggered_by_is_unsupported():
     result = run(
         'resource "aws_vpc" "v" {\n'
         "  lifecycle {\n"
         "    replace_triggered_by = [aws_vpc.v]\n"
         "  }\n"
+        "}\n"
+    )
+    constructs = [f.details["construct"] for f in result.findings]
+    assert constructs == ["replace_triggered_by"]
+    assert not result.complete
+
+
+def _edges(result):
+    return sorted((e.source, e.target, e.label) for e in result.ir.edges)
+
+
+def test_dynamic_block_iterator_is_not_a_dependency():
+    result = run(
+        'variable "tags" {}\n'
+        'resource "aws_vpc" "other" {}\n'
+        'resource "aws_vpc" "v" {\n'
+        '  dynamic "tag" {\n'
+        "    for_each = var.tags\n"
+        "    content {\n"
+        "      key   = tag.key\n"
+        "      value = aws_vpc.other.id\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    assert result.findings == []
+    assert result.complete
+    assert _edges(result) == [
+        ("tf:resource:aws_vpc.other", "tf:resource:aws_vpc.v", "tag.value"),
+        ("tf:variable:tags", "tf:resource:aws_vpc.v", "dynamic.tag.for_each"),
+    ]
+
+
+def test_dynamic_block_custom_iterator_and_nesting():
+    result = run(
+        'variable "groups" {}\n'
+        'resource "aws_x" "x" {\n'
+        '  dynamic "group" {\n'
+        "    for_each = var.groups\n"
+        "    iterator = g\n"
+        "    content {\n"
+        "      name = g.value.name\n"
+        '      dynamic "member" {\n'
+        "        for_each = g.value.members\n"
+        "        content { id = member.value }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    assert result.findings == []
+    assert _edges(result) == [
+        ("tf:variable:groups", "tf:resource:aws_x.x", "dynamic.group.for_each")
+    ]
+
+
+def test_iterator_name_is_scoped_to_its_content_only():
+    # Outside the dynamic block `tag` is not an iterator, so it is reported.
+    result = run(
+        'variable "tags" {}\n'
+        'resource "aws_vpc" "v" {\n'
+        "  name = tag.key\n"
         '  dynamic "tag" {\n'
         "    for_each = var.tags\n"
         "    content { key = tag.key }\n"
         "  }\n"
         "}\n"
     )
-    constructs = [f.details["construct"] for f in result.findings]
-    assert constructs == ["replace_triggered_by", "dynamic block"]
-    assert not result.complete
+    assert [f.code for f in result.findings] == [DiagnosticCode.UNRESOLVED_DEPENDENCY]
+
+
+def test_dynamic_block_that_terraform_rejects_is_an_error():
+    result = run(
+        'resource "aws_security_group" "sg" {\n'
+        '  dynamic "ingress" {\n'
+        '    protocol = "tcp"\n'
+        "    content {\n"
+        "      from_port = ingress.value\n"
+        "    }\n"
+        "    content {}\n"
+        "  }\n"
+        '  dynamic "egress" {\n'
+        "    for_each = [1]\n"
+        "  }\n"
+        "}\n"
+    )
+    assert [
+        (
+            f.code,
+            f.severity,
+            f.diagnostic.source_location.start_line,
+            f.diagnostic.message.split(";")[0],
+        )
+        for f in result.findings
+    ] == [
+        (
+            DiagnosticCode.TERRAFORM_SYNTAX_ERROR,
+            Severity.error,
+            2,
+            "dynamic \"ingress\" is missing the required 'for_each' argument, so "
+            "Terraform does not know what to repeat the block for.",
+        ),
+        (
+            DiagnosticCode.TERRAFORM_SYNTAX_ERROR,
+            Severity.error,
+            3,
+            "'protocol' is not a valid argument in dynamic \"ingress\"",
+        ),
+        (
+            DiagnosticCode.TERRAFORM_SYNTAX_ERROR,
+            Severity.error,
+            7,
+            'dynamic "ingress" has more than one content block.',
+        ),
+        (
+            DiagnosticCode.TERRAFORM_SYNTAX_ERROR,
+            Severity.error,
+            9,
+            'dynamic "egress" has no content block, so it generates nothing.',
+        ),
+    ]
+    # `ingress.value` is still treated as the iterator, not a missing resource.
+    assert all(f.code != DiagnosticCode.UNRESOLVED_DEPENDENCY for f in result.findings)
+    assert all(
+        f.node_ids == ("tf:resource:aws_security_group.sg",) for f in result.findings
+    )
 
 
 def test_variable_blocks_have_no_dependencies():

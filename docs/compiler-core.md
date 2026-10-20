@@ -145,7 +145,8 @@ Parsing goes through `hcl2.parses_to_tree` (python-hcl2 8.x Lark tree), **not** 
 | `count.*`, `each.*`, `self.*`, `path.*`, `terraform.*` | Meta-values, not dependencies |
 | `provider = …`, module `providers = {…}`, `lifecycle.ignore_changes` | Not dependencies; skipped by rule |
 | `variable` block contents | No dependencies (defaults must be literal) |
-| `local.*`, `for` expressions, `%{}` directives, heredocs with interpolation, `dynamic` blocks, `replace_triggered_by`, unknown expression forms | `UNSUPPORTED_CONSTRUCT` (warning); analysis is marked incomplete |
+| `local.*`, `for` expressions, `%{}` directives, heredocs with interpolation, `replace_triggered_by`, unknown expression forms | `UNSUPPORTED_CONSTRUCT` (warning); analysis is marked incomplete |
+| `dynamic "X" { for_each = ...  iterator = ...  content { ... } }` | `for_each` is analysed in the enclosing scope; inside `content` and `labels` the iterator (`X`, or the `iterator` name) is the current element, not a dependency. Nested `dynamic` blocks are supported. Missing `for_each`, no or several `content` blocks, or another argument directly in the block is a `TERRAFORM_SYNTAX_ERROR` (Terraform rejects them) |
 | Reference to an undeclared block | `UNRESOLVED_DEPENDENCY` (error), no edge |
 | Repeated references A→B | Merged into one edge per type; every occurrence is listed in `metadata.references` |
 

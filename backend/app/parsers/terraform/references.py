@@ -18,7 +18,13 @@ written as         refers to                   address
 ``var.N``          variable                    ``var.N``
 ``local.N``        (unsupported in v1, D6)     -
 ``count/each/self/path/terraform.*``  meta-values, not dependencies
+iterator name      current ``dynamic`` item    - (scoped, see below)
 =================  ==========================  ======================
+
+Inside ``dynamic "ingress" { content { ... } }``, ``ingress.value`` and
+``ingress.key`` name the current element of ``for_each`` (or the name set by
+``iterator = ...``). The extractor passes such names as ``scoped`` roots, which
+are not dependencies.
 
 Indexes and splats do not change the target: ``aws_subnet.a[0].id`` depends
 on the whole ``aws_subnet.a`` resource, as in Terraform itself.
@@ -179,14 +185,16 @@ def flatten(expr: Tree) -> tuple[Traversal | None, Tree | None, list[Tree]]:
         node = unwrap(inner)
 
 
-def resolve(trav: Traversal) -> tuple[RefKind, str] | str | None:
+def resolve(
+    trav: Traversal, scoped: frozenset[str] = frozenset()
+) -> tuple[RefKind, str] | str | None:
     """Map a traversal to ``(kind, address)``.
 
-    Returns ``None`` for meta-values and a string describing the problem when
-    the reference can't be resolved safely.
+    Returns ``None`` for meta-values and ``scoped`` iterator names, and a
+    string describing the problem when the reference can't be resolved safely.
     """
     attrs = trav.leading_attrs
-    if trav.root in META_ROOTS:
+    if trav.root in META_ROOTS or trav.root in scoped:
         return None
     if trav.root == "local":
         return "references to locals are not analysed in v1"
@@ -208,8 +216,9 @@ def resolve(trav: Traversal) -> tuple[RefKind, str] | str | None:
 
 
 class _Walker:
-    def __init__(self, filename: str | None) -> None:
+    def __init__(self, filename: str | None, scoped: frozenset[str]) -> None:
         self.filename = filename
+        self.scoped = scoped
         self.result = ExpressionAnalysis()
 
     def unsupported(self, tree: Tree, construct: str, reason: str) -> None:
@@ -256,7 +265,7 @@ class _Walker:
             if base is not None:
                 self.walk(base)
         else:
-            resolved = resolve(trav)
+            resolved = resolve(trav, self.scoped)
             if isinstance(resolved, str):
                 self.unsupported(node, trav.text, resolved)
             elif resolved is not None:
@@ -268,11 +277,25 @@ class _Walker:
             self.walk(index_expr)
 
 
-def analyze_expression(expr: Tree, filename: str | None) -> ExpressionAnalysis:
-    """All references and unsupported forms inside one expression."""
-    walker = _Walker(filename)
+def analyze_expression(
+    expr: Tree, filename: str | None, scoped: frozenset[str] = frozenset()
+) -> ExpressionAnalysis:
+    """All references and unsupported forms inside one expression.
+
+    ``scoped`` holds ``dynamic`` iterator names visible here; they are not
+    references to other blocks.
+    """
+    walker = _Walker(filename, scoped)
     walker.walk(expr)
     return walker.result
+
+
+def iterator_name(expr: Tree) -> str | None:
+    """The name in ``iterator = NAME``, or None if it is not a plain name."""
+    trav, _, _ = flatten(expr)
+    if trav is None or trav.steps:
+        return None
+    return trav.root
 
 
 def explicit_dependencies(expr: Tree, filename: str | None) -> ExpressionAnalysis:

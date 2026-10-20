@@ -26,7 +26,7 @@ function pickMock(format: SourceFormat, source: string): AnalysisResult {
   if (format === 'terraform' && source.includes('aws_security_group')) {
     return terraformCycleMock as AnalysisResult;
   }
-  if (format === 'terraform' && (source.includes('local.') || source.includes('dynamic "'))) {
+  if (format === 'terraform' && source.includes('local.')) {
     return terraformPartialMock as AnalysisResult;
   }
   return MOCKS[format];

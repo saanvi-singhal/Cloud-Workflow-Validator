@@ -79,7 +79,7 @@ def test_unsupported_info_gets_no_recommendation_but_warnings_do():
     result = analyse_fixture("unsupported.tf")
     linked = [result.diagnostics[r.diagnostic_index] for r in result.recommendations]
     assert linked and all(d.severity is Severity.warning for d in linked)
-    assert len(result.recommendations) == 4
+    assert len(result.recommendations) == 3
 
 
 def test_security_recommendations_per_rule():

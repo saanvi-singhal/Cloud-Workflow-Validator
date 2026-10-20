@@ -18,7 +18,10 @@ Per-block rules (all documented in docs/compiler-core.md):
   configurations, which are not graph nodes, so they are skipped;
 * ``lifecycle.ignore_changes`` lists attribute names, not references, so it is
   skipped; ``replace_triggered_by`` is unsupported;
-* ``dynamic`` blocks are unsupported (iterator scoping);
+* ``dynamic`` blocks: ``for_each`` is analysed in the enclosing scope and
+  ``content`` with the iterator name in scope, so ``ingress.value`` is not a
+  dependency. A block Terraform would reject (no ``for_each``, no or several
+  ``content`` blocks, an unknown argument) is a ``TERRAFORM_SYNTAX_ERROR``;
 * references to undeclared blocks become ``UNRESOLVED_DEPENDENCY`` errors and
   **no edge is created**.
 """
@@ -53,6 +56,7 @@ from app.parsers.terraform.references import (
     Unsupported,
     analyze_expression,
     explicit_dependencies,
+    iterator_name,
 )
 
 ID_PREFIX = "tf"
@@ -235,17 +239,127 @@ class _Extractor:
             self.connect_body(block, node_id, path=(), top_level=True)
 
     def connect_body(
-        self, block: Block, node_id: str, path: tuple[str, ...], top_level: bool
+        self,
+        block: Block,
+        node_id: str,
+        path: tuple[str, ...],
+        top_level: bool,
+        scoped: frozenset[str] = frozenset(),
     ) -> None:
         for attribute in block.attributes:
-            self.connect_attribute(block, attribute, node_id, path, top_level)
+            self.connect_attribute(block, attribute, node_id, path, top_level, scoped)
         for nested in block.blocks:
             if nested.type == "dynamic":
-                self.report_unsupported(
-                    Unsupported("dynamic block", "iterator scoping", nested.location)
-                )
+                self.connect_dynamic(nested, node_id, path, scoped)
                 continue
-            self.connect_body(nested, node_id, (*path, nested.type), top_level=False)
+            self.connect_body(
+                nested, node_id, (*path, nested.type), top_level=False, scoped=scoped
+            )
+
+    def structure_error(
+        self, message: str, location: SourceLocation | None, node_id: str
+    ) -> None:
+        """A block Terraform itself rejects (``terraform validate`` fails)."""
+        self.findings.append(
+            make_finding(
+                DiagnosticCode.TERRAFORM_SYNTAX_ERROR,
+                Severity.error,
+                message,
+                location,
+                node_ids=(node_id,),
+            )
+        )
+
+    def connect_dynamic(
+        self,
+        dynamic: Block,
+        node_id: str,
+        path: tuple[str, ...],
+        scoped: frozenset[str],
+    ) -> None:
+        """Analyse ``dynamic "NAME" { for_each = ...  content { ... } }``.
+
+        ``for_each`` (and ``iterator``) belong to the enclosing scope. Inside
+        ``content`` and ``labels``, the iterator name (default: the block's
+        label) refers to the current element, so it is added to ``scoped``.
+        """
+        if len(dynamic.labels) == 1:
+            name = dynamic.labels[0]
+        else:
+            name = "dynamic"
+            self.structure_error(
+                "A dynamic block needs exactly one label: the type of block to "
+                'generate, e.g. dynamic "ingress".',
+                dynamic.location,
+                node_id,
+            )
+        where = ".".join((*path, f"dynamic.{name}"))
+
+        iterator = name
+        iterator_attr = dynamic.attribute("iterator")
+        if iterator_attr is not None:
+            given = iterator_name(iterator_attr.expr)
+            if given is None:
+                self.structure_error(
+                    f"'iterator' in dynamic \"{name}\" must be a plain name.",
+                    iterator_attr.location,
+                    node_id,
+                )
+            else:
+                iterator = given
+        inner = scoped | {iterator}
+
+        for_each = dynamic.attribute("for_each")
+        if for_each is None:
+            self.structure_error(
+                f"dynamic \"{name}\" is missing the required 'for_each' argument, "
+                "so Terraform does not know what to repeat the block for.",
+                dynamic.location,
+                node_id,
+            )
+        else:
+            analysis = analyze_expression(for_each.expr, self.filename, scoped)
+            self.record(analysis, node_id, f"{where}.for_each", explicit=False)
+
+        for attribute in dynamic.attributes:
+            if attribute.name == "labels":
+                analysis = analyze_expression(attribute.expr, self.filename, inner)
+                self.record(analysis, node_id, f"{where}.labels", explicit=False)
+            elif attribute.name not in ("for_each", "iterator"):
+                self.structure_error(
+                    f"'{attribute.name}' is not a valid argument in dynamic "
+                    f'"{name}"; only for_each, iterator, labels and a content '
+                    "block are allowed. Arguments of the generated block go "
+                    "inside content.",
+                    attribute.location,
+                    node_id,
+                )
+
+        contents = [b for b in dynamic.blocks if b.type == "content"]
+        for other in dynamic.blocks:
+            if other.type != "content":
+                self.structure_error(
+                    f"'{other.type}' blocks are not allowed directly in dynamic "
+                    f'"{name}"; put them inside content.',
+                    other.location,
+                    node_id,
+                )
+        if not contents:
+            self.structure_error(
+                f'dynamic "{name}" has no content block, so it generates nothing.',
+                dynamic.location,
+                node_id,
+            )
+        for extra in contents[1:]:
+            self.structure_error(
+                f'dynamic "{name}" has more than one content block.',
+                extra.location,
+                node_id,
+            )
+        for content in contents:
+            self.connect_body(
+                content, node_id, (*path, name), top_level=False, scoped=inner
+            )
 
     def connect_attribute(
         self,
@@ -254,6 +368,7 @@ class _Extractor:
         node_id: str,
         path: tuple[str, ...],
         top_level: bool,
+        scoped: frozenset[str] = frozenset(),
     ) -> None:
         name = attribute.name
         if top_level and name == "depends_on":
@@ -272,7 +387,7 @@ class _Extractor:
                     )
                 )
                 return
-        analysis = analyze_expression(attribute.expr, self.filename)
+        analysis = analyze_expression(attribute.expr, self.filename, scoped)
         self.record(analysis, node_id, ".".join((*path, name)), explicit=False)
 
     def record(
