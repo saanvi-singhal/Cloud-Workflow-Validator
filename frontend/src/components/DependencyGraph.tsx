@@ -25,6 +25,27 @@ const MIN_W = 200;
 const H = 44;
 const EDGE = '#64748b';
 
+// Approximate size of the graph panel, used only to choose a layout direction.
+const PANEL = { width: 520, height: 448 };
+
+type Direction = 'LR' | 'TB';
+
+function layout(
+  nodes: AnalysisResult['graph']['nodes'],
+  edges: AnalysisResult['graph']['edges'],
+  rankdir: Direction,
+) {
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir, nodesep: rankdir === 'LR' ? 50 : 40, ranksep: rankdir === 'LR' ? 110 : 70 });
+  g.setDefaultEdgeLabel(() => ({}));
+  nodes.forEach(n => g.setNode(n.id, { width: nodeWidth(n.label), height: H }));
+  edges.forEach(e => g.setEdge(e.source, e.target)); // source -> target, never reversed
+  dagre.layout(g);
+  const { width = 1, height = 1 } = g.graph();
+  // How large the graph can be drawn when fitted into the panel.
+  return { g, rankdir, scale: Math.min(PANEL.width / width, PANEL.height / height) };
+}
+
 // Wide enough for the label (12px text is roughly 7px per character), so long
 // Terraform addresses are not cut off.
 function nodeWidth(label: string): number {
@@ -54,7 +75,7 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
   useEffect(() => {
     function onChange() {
       setIsFullscreen(document.fullscreenElement === containerRef.current);
-      requestAnimationFrame(() => flow?.fitView());
+      requestAnimationFrame(() => flow?.fitView({ padding: 0.15 }));
     }
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
@@ -78,12 +99,11 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
     // A line from a box back to itself can't be drawn, so those are shown as a tag on the box.
     const drawable = graph.edges.filter(e => e.source !== e.target);
 
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 110 });
-    g.setDefaultEdgeLabel(() => ({}));
-    graph.nodes.forEach(n => g.setNode(n.id, { width: nodeWidth(n.label), height: H }));
-    drawable.forEach(e => g.setEdge(e.source, e.target)); // source -> target, never reversed
-    dagre.layout(g);
+    // Long chains read best left to right, wide fan-outs top to bottom; use
+    // whichever layout can be drawn larger in the panel.
+    const horizontal = layout(graph.nodes, drawable, 'LR');
+    const vertical = layout(graph.nodes, drawable, 'TB');
+    const { g, rankdir } = vertical.scale > horizontal.scale * 1.1 ? vertical : horizontal;
 
     const nodes: Node[] = graph.nodes.map(n => {
       const p = g.node(n.id);
@@ -93,9 +113,9 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
         id: n.id,
         data: { label: cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label },
         position: { x: p.x - width / 2, y: p.y - H / 2 },
-        // The layout runs left to right, so edges leave on the right and enter on the left.
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
+        // Edges leave in the layout direction and enter from the opposite side.
+        sourcePosition: rankdir === 'LR' ? Position.Right : Position.Bottom,
+        targetPosition: rankdir === 'LR' ? Position.Left : Position.Top,
         style: {
           width,
           fontSize: 12,
@@ -139,7 +159,7 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
   return (
     <div className="mt-4">
       {graphEmpty ? (
-        <div className="flex h-80 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+        <div className="flex h-[28rem] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
           <p className="font-medium text-slate-700">Nothing to draw</p>
           <p className="mt-1 max-w-sm text-sm text-slate-500">
             No {NODE_NOUN[result.format]} were found in this file, so there is no dependency graph.
@@ -147,8 +167,17 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
           </p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-80 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false} onInit={setFlow}>
+        <div ref={containerRef} className="h-[28rem] overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            fitView
+            // Fit large graphs fully, but don't blow a single node up to fill the panel.
+            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+            minZoom={0.1}
+            nodesConnectable={false}
+            onInit={setFlow}
+          >
             <Background />
             <Controls showInteractive={false}>
               <ControlButton
