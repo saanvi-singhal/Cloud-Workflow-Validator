@@ -284,11 +284,15 @@ export default function App() {
                 <div key={r.id} className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm">
                   <div className="font-semibold text-indigo-800">{r.title}</div>
                   <div className="mt-1 text-slate-700">{r.explanation}</div>
-                  {r.proposed_change && (
-                    <pre className="mt-2 rounded bg-slate-900 p-2 text-xs text-green-300">
-                      {r.proposed_change.preview}
-                    </pre>
-                  )}
+                  {r.proposed_change?.preview ? (
+  <pre className="mt-2 rounded bg-slate-900 p-2 text-xs text-green-300">
+    {r.proposed_change.preview}
+  </pre>
+) : (
+  r.proposed_change && (
+    <p className="mt-2 text-xs text-slate-600">{r.proposed_change.description}</p>
+  )
+)}
                 </div>
               ))}
             </section>
