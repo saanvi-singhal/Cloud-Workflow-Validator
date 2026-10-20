@@ -32,6 +32,87 @@ ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.yaml]
 
 _DUPLICATE_KEY = re.compile(r'duplicate key "(.*?)"')
 
+# Events that can trigger a workflow
+# (https://docs.github.com/actions/reference/events-that-trigger-workflows).
+# GitHub refuses a workflow whose `on` names anything else.
+KNOWN_EVENTS = frozenset(
+    {
+        "branch_protection_rule",
+        "check_run",
+        "check_suite",
+        "create",
+        "delete",
+        "deployment",
+        "deployment_status",
+        "discussion",
+        "discussion_comment",
+        "fork",
+        "gollum",
+        "image_version",
+        "issue_comment",
+        "issues",
+        "label",
+        "merge_group",
+        "milestone",
+        "page_build",
+        "project",
+        "project_card",
+        "project_column",
+        "public",
+        "pull_request",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "pull_request_target",
+        "push",
+        "registry_package",
+        "release",
+        "repository_dispatch",
+        "schedule",
+        "status",
+        "watch",
+        "workflow_call",
+        "workflow_dispatch",
+        "workflow_run",
+    }
+)
+
+
+def _position(
+    line_col: tuple[int, int] | None, filename: str | None, length: int | None = None
+) -> SourceLocation | None:
+    """Turn a 0-based ruamel (line, col) into a 1-based SourceLocation."""
+    if line_col is None:
+        return None
+    line, col = line_col
+    return SourceLocation(
+        file=filename,
+        start_line=line + 1,
+        start_column=col + 1,
+        end_line=line + 1 if length else None,
+        end_column=col + 1 + length if length else None,
+    )
+
+
+def _key_position(mapping: Any, key: Any) -> tuple[int, int] | None:
+    try:
+        return mapping.lc.key(key)
+    except Exception:
+        return None
+
+
+def _value_position(mapping: Any, key: Any) -> tuple[int, int] | None:
+    try:
+        return mapping.lc.value(key)
+    except Exception:
+        return None
+
+
+def _item_position(sequence: Any, index: int) -> tuple[int, int] | None:
+    try:
+        return sequence.lc.item(index)
+    except Exception:
+        return None
+
 
 def _extract_location(
     node: Any, key: Any = None, filename: str | None = None
@@ -214,7 +295,118 @@ class _YamlExtractor:
                         )
                     )
 
+        self._check_triggers(data)
+        for job_key, job_val in jobs.items():
+            node_id = self.job_to_id.get(str(job_key))
+            if node_id is not None and isinstance(job_val, dict):
+                self._check_job(str(job_key), node_id, job_val, jobs)
+
         return IRGraph(format=SourceFormat.yaml, nodes=self.nodes, edges=self.edges)
+
+    # --- schema checks (spec 4.1) --------------------------------------------
+    # Only rules GitHub itself enforces when it loads a workflow. They are
+    # YAML_SYNTAX_ERROR errors: the workflow would be rejected before running.
+
+    def _schema_error(
+        self,
+        message: str,
+        location: SourceLocation | None,
+        node_id: str | None = None,
+    ) -> None:
+        self.findings.append(
+            make_finding(
+                DiagnosticCode.YAML_SYNTAX_ERROR,
+                Severity.error,
+                message,
+                location,
+                node_ids=(node_id,) if node_id else (),
+            )
+        )
+
+    def _check_triggers(self, data: Any) -> None:
+        """`on` must exist and name only real events."""
+        if "on" not in data:
+            self._schema_error(
+                "Missing 'on': a workflow must say which events trigger it.",
+                SourceLocation(file=self.filename, start_line=1, start_column=1),
+            )
+            return
+
+        on = data["on"]
+        # `on: push`, `on: [push, fork]` or `on: {push: {...}}`
+        if isinstance(on, str):
+            events = [(on, _value_position(data, "on"))]
+        elif isinstance(on, list):
+            events = [(e, _item_position(on, i)) for i, e in enumerate(on)]
+        elif isinstance(on, dict):
+            events = [(e, _key_position(on, e)) for e in on]
+        else:
+            self._schema_error(
+                "'on' must be an event name, a list of events or a mapping of events.",
+                _value_position(data, "on"),
+            )
+            return
+
+        for event, position in events:
+            if str(event) not in KNOWN_EVENTS:
+                self._schema_error(
+                    f"'{event}' is not a GitHub Actions event, so GitHub will "
+                    "reject this workflow. Did you mean 'push'?"
+                    if str(event) == "commit"
+                    else f"'{event}' is not a GitHub Actions event, so GitHub "
+                    "will reject this workflow.",
+                    _position(position, self.filename, len(str(event))),
+                )
+
+    def _check_job(
+        self, job_key: str, node_id: str, job: dict[str, Any], jobs: Any
+    ) -> None:
+        """A job needs `runs-on`, and each step exactly one of `uses` or `run`."""
+        job_position = _key_position(jobs, job_key)
+        # A job that calls a reusable workflow (`uses:` on the job) has no
+        # runner and no steps of its own.
+        if "uses" in job:
+            return
+
+        if "runs-on" not in job:
+            self._schema_error(
+                f"Job '{job_key}' is missing 'runs-on', so GitHub does not know "
+                "which runner to use.",
+                _position(job_position, self.filename, len(job_key)),
+                node_id,
+            )
+
+        steps = job.get("steps")
+        if steps is None:
+            return
+        if not isinstance(steps, list):
+            self._schema_error(
+                f"'steps' in job '{job_key}' must be a list of steps.",
+                _value_position(job, "steps"),
+                node_id,
+            )
+            return
+
+        for index, step in enumerate(steps):
+            position = _position(_item_position(steps, index), self.filename)
+            label = f"Step {index + 1} of job '{job_key}'"
+            if isinstance(step, dict) and step.get("name"):
+                label += f" ('{step['name']}')"
+            if not isinstance(step, dict):
+                self._schema_error(f"{label} must be a mapping.", position, node_id)
+            elif "uses" in step and "run" in step:
+                self._schema_error(
+                    f"{label} has both 'uses' and 'run'; a step must have exactly one.",
+                    position,
+                    node_id,
+                )
+            elif "uses" not in step and "run" not in step:
+                self._schema_error(
+                    f"{label} has neither 'uses' nor 'run', so it does nothing. "
+                    "A step must have exactly one of them.",
+                    position,
+                    node_id,
+                )
 
 
 def _duplicate_key_finding(

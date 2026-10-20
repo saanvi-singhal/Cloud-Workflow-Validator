@@ -167,3 +167,97 @@ jobs:
     )
     # When unsupported construct exists, execution_order is withheld
     assert result.execution_order is None
+
+
+INVALID_CI = """\
+name: Invalid CI Pipeline
+on: [commit]
+
+jobs:
+  test:
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Empty Step
+        env:
+          MY_VAR: "value"
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Publish Package
+        run: npm publish
+"""
+
+
+def _located_errors(result):
+    return [
+        (d.code, d.source_location.start_line, d.message.split(",")[0].split(";")[0])
+        for d in result.diagnostics
+        if d.severity.value == "error"
+    ]
+
+
+def test_schema_violations_are_reported_at_their_location(adapter):
+    result = compile_source(INVALID_CI, SourceFormat.yaml, adapter=adapter)
+
+    assert result.valid is False
+    syntax = DiagnosticCode.YAML_SYNTAX_ERROR
+    assert _located_errors(result) == [
+        (syntax, 2, "'commit' is not a GitHub Actions event"),
+        (syntax, 5, "Job 'test' is missing 'runs-on'"),
+        (syntax, 9, "Step 2 of job 'test' ('Empty Step') has neither 'uses' nor 'run'"),
+        (
+            DiagnosticCode.UNRESOLVED_DEPENDENCY,
+            15,
+            "Job 'publish' has unresolved dependency 'build'.",
+        ),
+    ]
+    event = result.diagnostics[0].source_location
+    assert (event.start_column, event.end_column) == (6, 12)  # `commit`, exclusive end
+    # Problems in a job colour its node.
+    test_recs = [
+        r for r in result.recommendations if "gha:job:test" in r.related_node_ids
+    ]
+    assert len(test_recs) == 2
+
+
+@pytest.mark.parametrize(
+    "on",
+    [
+        "push",
+        "[push, pull_request]",
+        "\n  push:\n    branches: [main]\n  workflow_dispatch:",
+    ],
+)
+def test_valid_trigger_forms_are_accepted(adapter, on):
+    source = f"on: {on}\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n"
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.diagnostics == []
+    assert result.valid is True
+
+
+def test_missing_on_is_reported(adapter):
+    result = compile_source(
+        "jobs:\n  a:\n    runs-on: x\n", SourceFormat.yaml, adapter=adapter
+    )
+    [diagnostic] = result.diagnostics
+    assert diagnostic.message.startswith("Missing 'on'")
+
+
+def test_step_with_both_uses_and_run_is_reported(adapter):
+    source = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n"
+        "      - uses: actions/checkout@v4\n        run: echo\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert "has both 'uses' and 'run'" in diagnostic.message
+    assert diagnostic.source_location.start_line == 6
+
+
+def test_reusable_workflow_job_needs_no_runs_on_or_steps(adapter):
+    source = "on: push\njobs:\n  call:\n    uses: org/repo/.github/workflows/w.yml@v1\n"
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.diagnostics == []

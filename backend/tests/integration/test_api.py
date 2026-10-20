@@ -38,6 +38,7 @@ def test_validate_terraform_success():
 def test_validate_yaml_success():
     payload = {
         "source": """
+on: push
 jobs:
   build:
     runs-on: ubuntu-latest
