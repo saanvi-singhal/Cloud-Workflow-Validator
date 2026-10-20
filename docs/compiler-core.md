@@ -96,7 +96,7 @@ The format is `<format prefix>:<kind>:<identity>`. No UUIDs or hashes. If the sa
 
 | Code | Severity | Emitted by | Meaning |
 |---|---|---|---|
-| `YAML_SYNTAX_ERROR` / `DOCKERFILE_SYNTAX_ERROR` / `TERRAFORM_SYNTAX_ERROR` | error | parsers | Source could not be parsed; `graph` is empty |
+| `YAML_SYNTAX_ERROR` / `DOCKERFILE_SYNTAX_ERROR` / `TERRAFORM_SYNTAX_ERROR` | error | parsers | Source could not be parsed (`graph` is empty), or is not valid for the format: e.g. a repeated YAML key, YAML with no `jobs` (not a GitHub Actions workflow), a Dockerfile with no `FROM` or an unknown instruction |
 | `DUPLICATE_NODE_ID` | error | parsers, `validation.py` | Same identity declared twice |
 | `UNRESOLVED_DEPENDENCY` | error | parsers | Reference to something not declared; **no edge is created** |
 | `DEPENDENCY_CYCLE` | error | `cycles.py` | One per cyclic region (Tarjan SCC), with a readable path (DFS); self-loops included |

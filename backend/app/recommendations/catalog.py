@@ -245,9 +245,10 @@ def fix_syntax_error(
         "FIX_SYNTAX_ERROR",
         finding,
         index,
-        "Fix the syntax error",
-        "The file could not be parsed, so no dependency analysis was possible. "
-        "Fix the syntax at the reported position and validate again.",
+        "Fix the syntax or structure error",
+        "The file is not valid for the selected format, so its dependencies "
+        "may not have been analysed. Fix the problem at the reported position "
+        "(or choose the right format) and validate again.",
     )
 
 

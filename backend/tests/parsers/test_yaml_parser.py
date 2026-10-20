@@ -98,12 +98,57 @@ def test_empty_or_no_jobs(adapter):
     result = compile_source(
         source, SourceFormat.yaml, filename="empty.yml", adapter=adapter
     )
-    assert result.valid is True
+    assert result.valid is False
     assert len(result.graph.nodes) == 0
-    assert len(result.graph.edges) == 0
-    assert any(
-        d.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT for d in result.diagnostics
+    [diagnostic] = result.diagnostics
+    assert diagnostic.code == DiagnosticCode.YAML_SYNTAX_ERROR
+    assert diagnostic.message.startswith("Not a GitHub Actions workflow")
+
+
+@pytest.mark.parametrize("source", ["", "- a\n- b\n", "just text\n"])
+def test_non_mapping_yaml_is_not_a_workflow(adapter, source):
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.valid is False
+    assert result.diagnostics[0].message.startswith("Not a GitHub Actions workflow")
+
+
+def test_docker_compose_file_is_named_as_unsupported(adapter):
+    source = (
+        'version: "3.8"\nservices:\n  api:\n    image: x\n'
+        "    depends_on:\n      - cache\n  cache:\n    image: redis\n"
     )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.valid is False
+    [diagnostic] = result.diagnostics
+    assert "Docker Compose file, which is not supported" in diagnostic.message
+
+
+def test_duplicate_key_outside_jobs_is_a_yaml_error(adapter):
+    source = (
+        "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
+        "    runs-on: windows-latest\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.valid is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.code == DiagnosticCode.YAML_SYNTAX_ERROR
+    assert diagnostic.message.startswith(
+        "Duplicate key 'runs-on' in the mapping starting on line 4"
+    )
+    loc = diagnostic.source_location
+    assert (loc.start_line, loc.start_column, loc.end_column) == (5, 5, 12)
+    # The graph is still built from the rest of the file.
+    assert [n.id for n in result.graph.nodes] == ["gha:job:build"]
+
+
+def test_duplicate_job_id_is_a_duplicate_node(adapter):
+    source = "on: push\njobs:\n  a:\n    runs-on: x\n  a:\n    runs-on: y\n"
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.code == DiagnosticCode.DUPLICATE_NODE_ID
+    assert diagnostic.message.startswith("Duplicate job ID 'a'")
+    assert diagnostic.source_location.start_line == 5
+    assert [r.related_node_ids for r in result.recommendations] == [["gha:job:a"]]
 
 
 def test_unsupported_needs_construct(adapter):

@@ -7,6 +7,7 @@ Normalizes jobs and their 'needs' dependencies into the shared IRGraph model.
 from __future__ import annotations
 
 import io
+import re
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -28,6 +29,8 @@ from app.models import (
 )
 
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.yaml]
+
+_DUPLICATE_KEY = re.compile(r'duplicate key "(.*?)"')
 
 
 def _extract_location(
@@ -62,22 +65,33 @@ class _YamlExtractor:
         self.job_to_id: dict[str, str] = {}
         self.edges: list[Edge] = []
 
-    def extract(self, data: Any) -> IRGraph:
-        if not isinstance(data, dict):
-            return IRGraph(format=SourceFormat.yaml, nodes=[], edges=[])
+    def _not_a_workflow(self, data: Any) -> IRGraph:
+        """A file without `jobs` is not a GitHub Actions workflow (spec 4.1).
 
-        jobs = data.get("jobs")
-        if jobs is None:
-            self.findings.append(
-                make_finding(
-                    DiagnosticCode.UNSUPPORTED_CONSTRUCT,
-                    Severity.info,
-                    "No 'jobs' mapping found in workflow definition.",
-                    location=_extract_location(data, "name", self.filename)
-                    or SourceLocation(file=self.filename, start_line=1, start_column=1),
-                )
+        This is an error, not info: reporting it as valid would suggest the
+        file was checked when nothing in it was analysed.
+        """
+        message = (
+            "Not a GitHub Actions workflow: there is no top-level 'jobs' "
+            "mapping. Only GitHub Actions workflow YAML is supported."
+        )
+        if isinstance(data, dict) and "services" in data:
+            message += " This looks like a Docker Compose file, which is not supported."
+        self.findings.append(
+            make_finding(
+                DiagnosticCode.YAML_SYNTAX_ERROR,
+                Severity.error,
+                message,
+                SourceLocation(file=self.filename, start_line=1, start_column=1),
             )
-            return IRGraph(format=SourceFormat.yaml, nodes=[], edges=[])
+        )
+        return IRGraph(format=SourceFormat.yaml, nodes=[], edges=[])
+
+    def extract(self, data: Any) -> IRGraph:
+        if not isinstance(data, dict) or data.get("jobs") is None:
+            return self._not_a_workflow(data)
+
+        jobs = data["jobs"]
 
         if not isinstance(jobs, dict):
             self.findings.append(
@@ -203,6 +217,55 @@ class _YamlExtractor:
         return IRGraph(format=SourceFormat.yaml, nodes=self.nodes, edges=self.edges)
 
 
+def _duplicate_key_finding(
+    exc: DuplicateKeyError, parsed: Any, filename: str | None
+) -> Finding:
+    """Report a repeated key: a duplicate job ID, or invalid YAML elsewhere.
+
+    YAML requires keys in a mapping to be unique, and most tools silently keep
+    only one value. Only a repeated key directly under `jobs` is a duplicate
+    graph node; anywhere else it is a YAML error.
+    """
+    match = _DUPLICATE_KEY.search(exc.problem or "")
+    key = match.group(1) if match else "?"
+    problem, context = exc.problem_mark, exc.context_mark
+    loc = None
+    if problem is not None:
+        loc = SourceLocation(
+            file=filename,
+            start_line=problem.line + 1,
+            start_column=problem.column + 1,
+            end_line=problem.line + 1,
+            end_column=problem.column + 1 + len(key) if match else None,
+        )
+
+    jobs = parsed.get("jobs") if isinstance(parsed, dict) else None
+    under_jobs = (
+        context is not None
+        and hasattr(jobs, "lc")
+        and (jobs.lc.line, jobs.lc.col) == (context.line, context.column)
+    )
+    if under_jobs:
+        base_id = make_node_id(ID_PREFIX, "job", key)
+        return make_finding(
+            DiagnosticCode.DUPLICATE_NODE_ID,
+            Severity.error,
+            f"Duplicate job ID '{key}'; only the first definition is analysed.",
+            loc,
+            node_ids=(base_id,),
+            details={"job": key},
+        )
+    where = f" in the mapping starting on line {context.line + 1}" if context else ""
+    return make_finding(
+        DiagnosticCode.YAML_SYNTAX_ERROR,
+        Severity.error,
+        f"Duplicate key '{key}'{where}. YAML keys must be unique; most tools "
+        "silently keep only one of the values. Check the indentation too: a "
+        "mis-indented block can merge two mappings.",
+        loc,
+    )
+
+
 class YamlAdapter:
     """SourceAdapter implementation for GitHub Actions / YAML workflows."""
 
@@ -214,27 +277,15 @@ class YamlAdapter:
         try:
             parsed = yaml.load(io.StringIO(source))
         except DuplicateKeyError as exc:
-            loc: SourceLocation | None = None
-            if exc.problem_mark is not None:
-                loc = SourceLocation(
-                    file=filename,
-                    start_line=exc.problem_mark.line + 1,
-                    start_column=exc.problem_mark.column + 1,
-                )
-            duplicate_findings.append(
-                make_finding(
-                    DiagnosticCode.DUPLICATE_NODE_ID,
-                    Severity.error,
-                    f"Duplicate key in YAML: {exc.problem}",
-                    loc,
-                )
-            )
             # Re-parse allowing duplicate keys so graph extraction can continue
             yaml_dup = YAML(typ="rt")
             yaml_dup.allow_duplicate_keys = True
             try:
                 parsed = yaml_dup.load(io.StringIO(source))
             except Exception:
+                parsed = None
+            duplicate_findings.append(_duplicate_key_finding(exc, parsed, filename))
+            if parsed is None:
                 return ParseResult(ir=None, findings=duplicate_findings)
         except MarkedYAMLError as exc:
             loc: SourceLocation | None = None
