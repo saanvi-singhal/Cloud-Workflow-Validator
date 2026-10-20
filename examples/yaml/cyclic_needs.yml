@@ -1,0 +1,21 @@
+# a -> b -> c -> a: no job can start first.
+# Expect one DEPENDENCY_CYCLE with the path, and no execution order.
+name: CI
+on: push
+
+jobs:
+  a:
+    needs: c
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo a
+  b:
+    needs: a
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo b
+  c:
+    needs: b
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo c

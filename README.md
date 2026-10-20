@@ -1,303 +1,191 @@
-# Compiler-Based Cloud Workflow Validator
+# Cloud Workflow Validator
 
-A static analysis tool that treats cloud infrastructure manifests, container definitions, and CI/CD pipelines as compiled software programs, constructing unified dependency graphs to detect defects, cycles, and optimization opportunities before execution.
+A compiler-style static analyser for GitHub Actions workflows, Dockerfiles and Terraform. It parses a configuration into a shared intermediate representation (IR), builds a dependency graph, runs graph analyses and rule checks, and reports diagnostics, an execution order and suggested fixes, without running anything.
 
----
-
-## 1. Project Overview & Problem Statement
-
-Modern cloud workflows comprise heterogeneous configurations—such as GitHub Actions YAML workflows, multi-stage Dockerfiles, and Terraform (HCL) infrastructure specifications. Subtle configuration errors (such as circular dependency deadlocks, missing prerequisite outputs, unreachable stages, and unoptimized execution ordering) typically remain undetected until runtime, causing failed CI runs, broken deployments, or dangling cloud resources.
-
-The **Compiler-Based Cloud Workflow Validator** solves this by applying classical compiler techniques to static cloud configurations:
-1. Parsing syntax into a **Common Intermediate Representation (IR)**.
-2. Constructing an abstract **Dependency Graph**.
-3. Executing generic **Static Analysis Passes** (cycle detection, topological sort, dead-path elimination).
-4. Generating **Actionable Diagnostics and Recommendations** with remediation diffs.
-5. Rendering the workflow graph and diagnostics in an interactive visual interface.
+The authoritative contract is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
 
 ---
 
-## 2. Planned Supported Formats
+## 1. What it does
 
-| Format | Target Specifications | Parser Library | Key Analysis Focus |
-| :--- | :--- | :--- | :--- |
-| **YAML** | CI/CD Pipelines (e.g., GitHub Actions) | `ruamel.yaml` | Job prerequisite cycles (`needs`), execution ordering, missing step inputs |
-| **Dockerfile** | Container Build Specifications | `dockerfile-parse` | Multi-stage dependencies (`COPY --from`), layer caching ordering, unreachable stages |
-| **Terraform (HCL)** | Cloud Infrastructure Manifests | `python-hcl2` | Inter-resource dependencies, circular references, orphan resource blocks |
+1. **Parse** one source file into the shared IR: nodes (jobs, stages, Terraform blocks) and edges, where `A → B` means *A must come before B*.
+2. **Validate** the graph, then find cycles (Tarjan SCC plus a DFS path for each cycle), compute a deterministic execution order (Kahn's algorithm), and check reachability and disconnected parts.
+3. **Check rules**: schema errors the target tool would reject, plus a small, documented set of security and quality rules.
+4. **Report** diagnostics with exact source locations and deterministic recommendations, some with a preview of the change. Nothing is ever applied to your files.
+5. **Show** it all in a web UI: an interactive graph, clickable diagnostics and node details.
+
+**Static analysis only.** User configurations are never executed, Terraform is never run and no provider or registry is contacted.
 
 ---
 
-## 3. High-Level Architecture & Compiler Pipeline
+## 2. Supported formats and checks
 
-The core architectural tenet is the **strict separation of language-specific syntax parsers from generic graph algorithms**.
+| Format | Graph | Checks (summary) |
+| :--- | :--- | :--- |
+| **GitHub Actions YAML** | Jobs; `needs` edges | Unknown `needs` jobs; cycles; duplicate keys and job IDs; missing `on`/`jobs`; unknown trigger events; unknown workflow, job and step keys; missing `runs-on`; steps without exactly one of `uses`/`run`; `secrets` in `if`; reusable-workflow call rules. Rules: script injection from untrusted event data, numbers that lose a trailing zero (`3.10` → `3.1`). |
+| **Dockerfile** | Stages; `FROM <stage>` and `COPY --from` edges | No `FROM`; unknown instructions; instructions before `FROM`; malformed `HEALTHCHECK` and `ONBUILD`; unknown or later stage references; stages the final stage does not need. Rules: exec form that is not valid JSON, `apt-get` without `-y`, unpinned base images, running as root, `apt-get update` alone, `apt-get upgrade`, `ADD` for local files, copying the whole context before installing dependencies, consecutive `RUN`s, unpinned packages. |
+| **Terraform (HCL)** | `resource`, `data`, `module`, `variable`, `output`; reference and `depends_on` edges | Undeclared references; cycles; duplicate blocks; `dynamic` blocks (iterator scoping, required `for_each`/`content`). Rules: public S3 ACLs, ingress open to the internet, hard-coded secrets, publicly accessible databases. |
+
+The full lists, with rule IDs and severities, are in [docs/compiler-core.md](docs/compiler-core.md). Diagnostic codes are listed in spec section 6.1.
+
+---
+
+## 3. Architecture
 
 ```
-Input Configuration (YAML / Dockerfile / HCL)
-                     │
-                     ▼
-             Language Adapter
-                     │
-                     ▼
-       Intermediate Representation (IR)
-                     │
-                     ▼
-             Dependency Graph
-                     │
-                     ▼
-          Static Analysis Passes
-     (Cycles, Topological Order, Orphans)
-                     │
-                     ▼
-       Diagnostics & Recommendations
-                     │
-                     ▼
-         Presentation Layer (API & UI)
+source text ──► format adapter ──► IR (nodes, edges) ──► graph validation
+   (YAML / Dockerfile / HCL)                                   │
+                                                               ▼
+       response ◄── recommendations ◄── diagnostics ◄── cycles · order · reachability · rules
 ```
 
-For the complete architectural design and IR schema details, see [docs/architecture.md](docs/architecture.md).
+- `backend/app/parsers/`: one adapter per format. Only the adapters know about ruamel.yaml, dockerfile-parse or python-hcl2.
+- `backend/app/compiler/`, `backend/app/analysis/`: the format-independent IR, pipeline and graph algorithms.
+- `backend/app/rules/`, `backend/app/recommendations/`: rule sets and the recommendation catalogue.
+- `backend/app/api/`: FastAPI routes. `frontend/`: the React UI.
+
+More detail: [docs/architecture.md](docs/architecture.md) and [docs/compiler-core.md](docs/compiler-core.md).
 
 ---
 
-## 4. Planned Features
+## 4. API
 
-> [!NOTE]
-> All features listed below are **planned** and currently under active development. See [Current Implementation Status](#13-current-implementation-status--known-limitations) for details.
+| Route | Purpose |
+| :--- | :--- |
+| `GET /api/v1/health` | Health check |
+| `POST /api/v1/validate` | Body `{"source": "...", "format": "yaml" \| "dockerfile" \| "terraform", "filename": "optional"}`. Returns `valid`, `format`, `diagnostics`, `graph`, `execution_order` and `recommendations`. |
 
-- **Multi-Format Ingestion**: Unified validation interface accepting YAML, Dockerfile, or Terraform configurations.
-- **Cycle Detection**: Identification of circular dependencies using Tarjan's Strongly Connected Components and cycle chain reporting.
-- **Topological Sorting**: Computation of valid execution orders and critical paths.
-- **Orphan & Dead-Code Detection**: Identification of unreferenced build stages, unreachable steps, and dangling infrastructure resources.
-- **Actionable Remediation Engine**: Pinpointed source code diagnostics with suggested fixes and diff previews.
-- **Interactive Visual Canvas**: Visual graph rendering with pan/zoom, node status highlighting, and diagnostics inspection in React.
-- **REST API**: Automated validation endpoints under `/api/v1` (`GET /api/v1/health`, `POST /api/v1/validate`) suitable for pre-commit hooks, CI/CD gates, and web client integration. See [docs/api.md](docs/api.md).
+An invalid configuration is still HTTP 200, with diagnostics. A malformed request is 422, and a source larger than `MAX_SOURCE_BYTES` is 413. See [docs/api.md](docs/api.md).
 
 ---
 
-## 5. Technology Stack
-
-- **Backend**:
-  - Language: Python 3.10+
-  - Web Framework: [FastAPI](https://fastapi.tiangolo.com/) & [Uvicorn](https://www.uvicorn.org/)
-  - Data Validation & Schemas: [Pydantic v2](https://docs.pydantic.dev/)
-  - Format Parsers: `ruamel.yaml`, `dockerfile-parse`, `python-hcl2`
-  - Testing & Client: `pytest`, `httpx`
-  - Code Quality: [Ruff](https://docs.astral.sh/ruff/) (linter & formatter)
-- **Frontend**:
-  - Framework: React with TypeScript
-  - Build Tool: [Vite](https://vitejs.dev/)
-  - Visualization: React Flow / Cytoscape
-- **Infrastructure & CI**:
-  - Continuous Integration: GitHub Actions (`.github/workflows/ci.yml`)
-  - Cloud Deployment: [Vercel](https://vercel.com) (independent frontend and serverless backend projects)
-
----
-
-## 6. Repository Directory Structure
+## 5. Repository layout
 
 ```
 Cloud-Workflow-Validator/
-├── .github/
-│   └── workflows/
-│       └── ci.yml             # GitHub Actions CI workflow (linting & tests)
+├── .github/workflows/ci.yml   # backend and frontend CI
 ├── backend/
 │   ├── app/
-│   │   ├── api/               # FastAPI endpoints & routers
-│   │   ├── compiler/          # Common IR and compiler pipeline core
-│   │   ├── parsers/           # Language adapters (YAML, Dockerfile, HCL)
-│   │   ├── analysis/          # Generic graph algorithms & cycle detection
-│   │   ├── recommendations/   # Lint rules and remediation engine
-│   │   └── models/            # Pydantic schemas (IR models, API contracts)
-│   ├── tests/
-│   │   └── test_scaffolding.py# Test discovery & environment tests
-│   ├── pyproject.toml         # Pytest & Ruff configuration
-│   ├── requirements.txt       # Python dependency manifest
-│   └── .env.example           # Backend environment template
+│   │   ├── api/               # FastAPI routes (main.py is the app entry point)
+│   │   ├── compiler/          # IR, pipeline, adapter registry, format policy
+│   │   ├── analysis/          # validation, cycles, topological sort, reachability
+│   │   ├── parsers/           # yaml/, dockerfile/, terraform/ adapters
+│   │   ├── rules/             # Dockerfile, GitHub Actions and Terraform rules
+│   │   ├── recommendations/   # recommendation engine and catalogue
+│   │   └── models/            # Pydantic models: the shared contract
+│   ├── tests/                 # unit/, parsers/, integration/, fixtures/
+│   ├── pyproject.toml
+│   └── requirements.txt
 ├── frontend/
-│   ├── .env.example           # Frontend environment template
-│   └── README.md              # Frontend setup & development guide
-├── examples/
-│   ├── yaml/                  # Sample CI/CD workflow fixtures
-│   ├── dockerfile/            # Sample Dockerfile fixtures
-│   ├── terraform/             # Sample Terraform HCL fixtures
-│   └── README.md              # Examples overview
-├── docs/
-│   ├── architecture.md        # Compiler pipeline & IR architecture
-│   ├── api.md                 # REST API specifications & contracts
-│   ├── testing.md             # Testing conventions & commands
-│   └── deployment.md          # Independent Vercel deployment guide
-├── .editorconfig              # Multi-language formatting standards
-├── .gitignore                 # Version control exclusions
-├── .env.example               # Root environment reference template
-├── LICENSE                    # GNU General Public License v3.0
-└── README.md                  # Project overview and documentation
+│   ├── src/                   # App, components/, api.ts, analysis.ts, samples/, mocks/
+│   └── scripts/generate_mocks.py
+├── examples/                  # yaml/, dockerfile/, terraform/ (static fixtures)
+└── docs/                      # spec, compiler core, API, architecture, testing, deployment
 ```
 
 ---
 
-## 7. Prerequisites
+## 6. Local development
 
-- **Python**: Version 3.10 or higher
-- **Node.js**: Version 18.0 or higher (with npm)
-- **Git**: Version 2.30 or higher
+**Prerequisites:** Python 3.10+ (CI uses 3.11), Node.js 20.19+ or 22.12+ (required by Vite 8; CI uses 22), and Git.
 
----
+### Backend
 
-## 8. Local Development Setup
-
-### A. Clone Repository
-```bash
-git clone https://github.com/bibek/Cloud-Workflow-Validator.git
-cd Cloud-Workflow-Validator
-```
-
-### B. Backend Setup
-1. **Always** create the virtual environment *inside the repository root* as `.venv` (it is git-ignored) and activate it. Do not install project dependencies into the system Python:
+1. **Always** create the virtual environment *inside the repository root* as `.venv` (it is git-ignored). Do not install project dependencies into the system Python:
    ```bash
    python3 -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   source .venv/bin/activate  # Windows: .venv\Scripts\activate
    ```
-2. Install Python dependencies into that venv (runtime + dev tools: pytest, pytest-cov, ruff, httpx), then the backend package itself in editable mode:
+2. Install the dependencies into that venv, then the backend package itself in editable mode:
    ```bash
    pip install -r backend/requirements.txt
    pip install -e "backend[dev]"
    ```
-   Re-run both commands whenever `backend/requirements.txt` or `backend/pyproject.toml` changes. Run every command below from the activated venv (or prefix it with `.venv/bin/`).
-3. Initialize the backend environment file:
+   Re-run both whenever `backend/requirements.txt` or `backend/pyproject.toml` changes.
+3. Start the API on `http://localhost:8000`:
    ```bash
-   cp backend/.env.example backend/.env
+   cd backend
+   uvicorn app.main:app --reload --port 8000
    ```
-4. Run the backend development server:
-   ```bash
-   # [Placeholder: To be used once app/main.py is implemented by Saanvi]
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-   > *Note: `app.main:app` will be created during the backend feature development phase. Once started, the backend exposes canonical endpoints `GET /api/v1/health` and `POST /api/v1/validate`.*
 
-### C. Frontend Setup
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Initialize environment file:
-   ```bash
-   cp .env.example .env
-   ```
-3. Install dependencies and run development server:
-   ```bash
-   # [Placeholder: To be used once Vite project is initialized by Pavithra]
-   npm install
-   npm run dev
-   ```
-   Default development URL: `http://localhost:5173`
-
----
-
-## 9. Testing & Code Quality
-
-Run tests and quality checks from the repository root:
+### Frontend
 
 ```bash
-# Run pytest backend test suite
-pytest backend/tests
-
-# Run with coverage (target: at least 70% overall)
-pytest backend/tests --cov=app --cov-report=term-missing
-
-# Check for code linting errors
-ruff check backend
-
-# Check code formatting compliance
-ruff format --check backend
+cd frontend
+npm ci
+npm run dev        # http://localhost:5173
 ```
 
-For complete testing conventions, markers, and guidelines, see [docs/testing.md](docs/testing.md).
+Open `http://localhost:5173` (not `127.0.0.1`: CORS allows the `localhost` origins by default). To work on the UI without the backend, start it with `VITE_USE_MOCK=true npm run dev`. The mocks are real backend output, regenerated with `.venv/bin/python frontend/scripts/generate_mocks.py`.
 
----
+### Configuration
 
-## 10. Environment Variables
+The backend reads environment variables from the process environment. It does not load a `.env` file, so export them or set them in your hosting platform.
 
-| Variable | Scope | Default Value | Description |
+| Variable | Used by | Default | Meaning |
 | :--- | :--- | :--- | :--- |
-| `ENVIRONMENT` | Backend | `development` | Runtime environment mode (`development`, `staging`, `production`) |
-| `HOST` | Backend | `0.0.0.0` | Server binding host address |
-| `PORT` | Backend | `8000` | Server binding network port |
-| `ALLOWED_ORIGINS`| Backend | `http://localhost:5173,http://localhost:3000` | Comma-delimited origins permitted by CORS middleware |
-| `LOG_LEVEL` | Backend | `info` | Application logging verbosity (`debug`, `info`, `warning`, `error`) |
-| `VITE_API_BASE_URL` | Frontend | `http://localhost:8000` | Base endpoint URL for communicating with the backend API |
+| `ALLOWED_ORIGINS` | backend | `http://localhost:5173,http://localhost:3000` | Comma-separated CORS origins. Set it to the deployed frontend's origin. |
+| `MAX_SOURCE_BYTES` | backend | `524288` (512 KB) | Largest accepted source; larger requests get HTTP 413. |
+| `VITE_API_BASE_URL` | frontend (build time) | `http://localhost:8000` | Backend base URL; empty means same origin. |
+| `VITE_USE_MOCK` | frontend (build time) | `false` | `true` serves the bundled mocks instead of calling the API. |
 
 ---
 
-## 11. Git Branching & Collaboration Conventions
+## 7. Tests and quality checks
 
-To facilitate parallel development across team members without conflicts, the team adheres to the following Git strategy:
+```bash
+# backend, from the repository root (inside the venv)
+ruff check backend && ruff format --check backend
+pytest backend/tests --cov=app --cov-fail-under=70
 
-### Branch Roles
-- **`main`**: Production-ready, stable releases.
-- **`dev`**: Active integration branch where all tested feature branches merge.
-- **`feat/compiler-core`**: Feature branch for compiler core, Terraform parser, graph algorithms, and recommendations (**Me**).
-- **`feat/backend-parsers`**: Feature branch for YAML & Dockerfile parsers and FastAPI backend routes (**Saanvi**).
-- **`feat/frontend`**: Feature branch for React application, Vite setup, and graph visualization (**Pavithra**).
+# frontend
+cd frontend
+npm run lint && npm test && npm run build   # build includes `tsc -b`
+```
 
-### Team Collaboration Workflow
-1. Always base feature branches off the latest `dev`:
-   ```bash
-   git checkout dev
-   git pull origin dev
-   git checkout -b feat/<your-assigned-feature>
-   ```
-2. Make focused, well-documented commits.
-3. Keep feature branches updated with `dev` regularly to avoid divergence:
-   ```bash
-   git fetch origin
-   git merge origin/dev
-   ```
-4. Open a Pull Request targeting `dev` when a feature increment is ready.
-5. Verify that GitHub Actions CI passes (all tests and lint checks green).
-6. Request team review before merging.
+CI (`.github/workflows/ci.yml`) runs both sets on pushes and pull requests to `dev` and `main`. Backend coverage is about 96%, against the spec's 70% target. Every file in `examples/` is analysed in the test suite and must produce its documented result. See [docs/testing.md](docs/testing.md).
 
 ---
 
-## 12. Team Responsibilities
+## 8. Current limitations
 
-| Team Member | Branch | Assigned Components |
+- **One file at a time.** Terraform modules spread over several `.tf` files, reusable workflows and remote base images are not fetched or resolved, so a reference to something in another file is reported as unresolved.
+- **Terraform:** `local.*` references, `for` expressions, `%{}` template directives, heredocs with interpolation and `replace_triggered_by` are reported as unsupported constructs. The analysis is then marked partial and the execution order is withheld.
+- **GitHub Actions:** expressions are not evaluated, so `if` conditions and matrix values do not change the graph. Only the structure GitHub validates when it loads a workflow is checked.
+- **Dockerfile:** `ARG` and `ENV` values are not substituted into stage names or images. Stages have no execution order (spec 5.3).
+- **Formats:** only GitHub Actions workflows are supported as YAML, not Docker Compose or other YAML files.
+- **Rules:** the rule sets are small and deterministic. They are not a comprehensive security scanner or linter.
+- **Deployment:** not yet configured or verified (see below).
+
+---
+
+## 9. Deployment
+
+The goal is one Vercel project serving both the frontend and the API, with a documented fallback (spec section 11). Nothing has been deployed yet: there is no Vercel configuration, and the platform's request and bundle limits have not been measured, so the `MAX_SOURCE_BYTES` default is provisional. See [docs/deployment.md](docs/deployment.md).
+
+---
+
+## 10. Team workflow
+
+| Member | Area | Branch |
 | :--- | :--- | :--- |
-| **Lead Developer (Me)** | `feat/compiler-core` | Compiler core pipeline, Common IR design, Terraform (HCL) parser, graph analysis algorithms (cycle detection, topological sort), recommendations engine |
-| **Saanvi** | `feat/backend-parsers` | YAML parser, Dockerfile parser, FastAPI endpoints, request schemas, error handling |
-| **Pavithra** | `feat/frontend` | React + Vite application, graph visualization canvas (React Flow), diagnostics UI, API client integration |
+| **Bibek** (project owner) | Compiler core: IR, graph algorithms, Terraform analysis, rules, recommendations | `feat/compiler-core` |
+| **Saanvi** | YAML and Dockerfile parsers, FastAPI | `feat/backend-parsers` |
+| **Pavithra** | React frontend and graph visualisation | `feat/frontend` |
+
+`dev` is the integration branch and `main` holds releases. Branch from the latest `dev`, keep commits focused, open a pull request to `dev`, and merge only when CI passes. Changes to the shared contract (schemas, node and edge types, diagnostic fields, routes) need the project owner's approval first (spec section 12.4).
 
 ---
 
-## 13. Current Implementation Status & Known Limitations
+## 11. Documentation
 
-### Current Status
-- **Scaffolding Complete**: Repository directory structure, dependency manifests (`requirements.txt`), project configuration (`pyproject.toml`, `.editorconfig`), CI workflow (`.github/workflows/ci.yml`), environment templates, and comprehensive architectural documentation are established.
-- **Verified Environment**: Dependency resolution and test execution runner verified.
-
-### Known Limitations
-- **Parsers Not Yet Implemented**: Language adapters for YAML, Dockerfiles, and Terraform are scaffolding placeholders; syntax parsing will be implemented on `feat/backend-parsers` and `feat/compiler-core`.
-- **Compiler Passes Not Yet Implemented**: Cycle detection, topological sorting, and recommendation rules are pending feature implementation.
-- **API Endpoints Not Yet Live**: FastAPI routing and HTTP endpoints are not yet registered.
-- **Frontend Not Yet Initialized**: React components and Vite frontend are pending implementation on `feat/frontend`.
-
----
-
-## 14. Deployment
-
-The project is structured for independent deployment of the frontend static client and backend serverless function on **Vercel** from this single monorepo.
-
-For comprehensive deployment instructions, project configuration, and platform constraints, see **[docs/deployment.md](docs/deployment.md)**.
-
----
-
-## 15. Documentation Index
-
-- [Project Specification (authoritative contract)](docs/PROJECT_SPEC.md)
-- [Compiler Core Reference (IR, diagnostic codes, Terraform support, integration guide)](docs/compiler-core.md)
-- [Compiler Core Implementation Plan (approved decisions D1–D17)](docs/claude-planning.md)
-- [Architecture & Pipeline Specification](docs/architecture.md)
-- [REST API Contracts](docs/api.md)
-- [Testing Guidelines](docs/testing.md)
-- [Vercel Deployment Guide](docs/deployment.md)
-- [Frontend Documentation](frontend/README.md)
-- [Sample Examples Overview](examples/README.md)
+- [Project specification (authoritative)](docs/PROJECT_SPEC.md)
+- [Compiler core reference: IR, diagnostic codes, rules, format support](docs/compiler-core.md)
+- [Compiler core plan (approved decisions D1–D17)](docs/claude-planning.md)
+- [Architecture](docs/architecture.md)
+- [API contract](docs/api.md)
+- [Testing](docs/testing.md)
+- [Deployment](docs/deployment.md)
+- [Frontend](frontend/README.md)
+- [Examples](examples/README.md)
 - [License (GPLv3)](LICENSE)

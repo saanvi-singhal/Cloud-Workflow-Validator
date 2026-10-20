@@ -1,6 +1,6 @@
 # Testing
 
-Testing conventions for the backend. The required test layers and fixture
+Testing conventions for the backend and frontend. The required test layers and fixture
 coverage are defined in [PROJECT_SPEC.md section 9](PROJECT_SPEC.md#9-testing-and-quality-gates).
 
 ## Environment
@@ -32,20 +32,32 @@ backend/tests/
     test_reachability.py       components, ancestors/descendants, format policy
     test_recommendations.py    recommendation engine and catalogue
     test_terraform_rules.py    Terraform security rules
+    test_dockerfile_rules.py   Dockerfile rules (DF_*)
   parsers/
     test_terraform_references.py   structural reference extraction from HCL expressions
-    test_terraform_extractor.py    Terraform blocks -> IR, syntax errors, literals
+    test_terraform_extractor.py    Terraform blocks -> IR, dynamic blocks, syntax errors
+    test_yaml_parser.py            GitHub Actions adapter: needs, schema checks, GHA_* rules
+    test_dockerfile_parser.py      Dockerfile adapter: stages, references, structure checks
   integration/
     test_pipeline.py           parser output -> validation -> analysis -> AnalysisResult (fake adapters)
     test_terraform_pipeline.py Terraform fixtures through the full pipeline
-    test_examples.py           every file in examples/terraform/ analyses as documented
+    test_api.py                HTTP routes: health, validate, 413, CORS
+    test_examples.py           every file in examples/ analyses as documented, deterministically
   fixtures/
-    terraform/                 valid, cyclic, unresolved, depends_on, unsupported, security, syntax_error (.tf)
+    terraform/ yaml/ dockerfile/
 ```
 
-Not present yet: YAML and Dockerfile parser tests and fixtures (Saanvi), and
-the API tests under `tests/api/` that spec 2.1 and 9.1 call for (Saanvi; there
-is no FastAPI app yet).
+API tests live in `integration/test_api.py` rather than a separate
+`tests/api/` folder.
+
+### Frontend
+
+`frontend/src/analysis.test.ts` tests the pure helpers that turn a response
+into what the UI shows. `frontend/src/App.test.tsx` renders the real app with
+React Testing Library and jsdom, with `fetch` stubbed by backend-generated
+responses: format selection and request body, empty input, status, diagnostics
+and fixes, API error states (unreachable, 413, 422, 500), diagnostic → node
+details, and Dockerfile stage instructions. Run with `npm test` in `frontend/`.
 
 ## Markers
 
@@ -56,8 +68,8 @@ marker name fails the run.
 |---|---|---|
 | `unit` | "mark test as a fast unit test" | One module in isolation on hand-built inputs: models, IR helpers, each graph algorithm, recommendation rules, Terraform rules. |
 | `compiler` | "mark test as a compiler core or graph test" | Anything exercising the compiler core: IR, validation, cycles, ordering, reachability, pipeline, recommendations. Combined with `unit` or `integration`. |
-| `parser` | "mark test as a parser-specific test" | Format adapters on real source text (currently the Terraform adapter). |
-| `integration` | "mark test as an integration test" | Multiple stages together, from **parser output or source text through IR, analysis and diagnostics to the `AnalysisResult` response payload**. It is not limited to HTTP API tests; there are no HTTP tests yet. |
+| `parser` | "mark test as a parser-specific test" | Format adapters on real source text. |
+| `integration` | "mark test as an integration test" | Multiple stages together, from **parser output or source text through IR, analysis and diagnostics to the `AnalysisResult` response payload**. It is not limited to HTTP API tests; those are in `integration/test_api.py`. |
 
 `test_scaffolding.py` carries no marker.
 
@@ -99,14 +111,13 @@ ruff format --check backend
 
 ## CI
 
-`.github/workflows/ci.yml` defines a single job, `test` ("Backend Lint and
-Tests"), on pushes and pull requests to `main` and `dev`. It:
+`.github/workflows/ci.yml` runs two jobs on pushes and pull requests to `main`
+and `dev`:
 
-1. sets up Python 3.11;
-2. runs `pip install -r backend/requirements.txt`;
-3. runs `ruff check backend` and `ruff format --check backend`;
-4. runs `pytest backend/tests`.
-
-**CI does not currently enforce the coverage target.** No coverage options are
-passed to pytest in CI, and there are no frontend checks yet (spec 9.5 asks for
-both backend and frontend checks once the frontend exists).
+- **Backend Lint and Tests**: Python 3.11, `pip install -r
+  backend/requirements.txt`, `ruff check backend`, `ruff format --check
+  backend`, then `pytest backend/tests --cov=app --cov-fail-under=70`, so CI
+  fails below the 70% coverage target.
+- **Frontend Lint, Tests and Build**: Node 22, `npm ci`, `npm run lint`
+  (oxlint), `npm test` (vitest) and `npm run build`, which runs `tsc -b` first
+  and so is also the type check.

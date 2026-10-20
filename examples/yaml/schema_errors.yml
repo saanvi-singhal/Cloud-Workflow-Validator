@@ -1,0 +1,16 @@
+# Mistakes GitHub rejects when it loads the workflow.
+# Expect YAML_SYNTAX_ERROR for each: unknown event `commit`, unknown key
+# `run-on`, missing `runs-on`, a step with neither `uses` nor `run`, and
+# `secrets` in an `if`.
+name: Invalid CI
+on: [commit]
+
+jobs:
+  test:
+    run-on: ubuntu-latest
+    steps:
+      - name: Empty step
+        env:
+          MODE: test
+      - if: secrets.TOKEN != ''
+        run: echo "has token"

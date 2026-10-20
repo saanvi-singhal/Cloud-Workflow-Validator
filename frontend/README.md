@@ -1,43 +1,37 @@
-# Frontend - Cloud Workflow Validator
+# Frontend: Cloud Workflow Validator
 
-This directory houses the frontend application for the Compiler-Based Cloud Workflow Validator.
+React + TypeScript + Vite + Tailwind UI for the validator. Owner: Pavithra (`feat/frontend`).
 
-## Ownership
-- **Lead Developer**: Pavithra (React frontend, interactive workflow graphs, visualization)
-- **Branch**: `feat/frontend`
+## Run
 
-## Planned Tech Stack
-- **Framework**: React 18+ with TypeScript
-- **Build Tool**: Vite
-- **Styling**: Tailwind CSS / modern CSS
-- **Visualization**: React Flow / Cytoscape.js / D3 for interactive dependency graph rendering
-- **API Client**: Fetch / Axios / TanStack Query connecting to the FastAPI backend
-
-## Planned Getting Started
-When initializing the frontend project:
 ```bash
-# Initialize Vite React + TypeScript template (if starting from scratch)
-# cd frontend
-npm install
-
-# Copy environment configuration
-cp .env.example .env
-
-# Run development server (default: http://localhost:5173)
-npm run dev
-
-# Build production bundle (output: dist/)
-npm run build
+npm ci
+npm run dev            # http://localhost:5173, talks to the API at VITE_API_BASE_URL
 ```
 
-## Environment Configuration
-See [frontend/.env.example](.env.example):
-- `VITE_API_BASE_URL`: Base URL of the backend API (e.g., `http://localhost:8000` in dev, or the deployed Vercel backend URL in production).
+Use `http://localhost:5173`, not `127.0.0.1`: the backend's default CORS origins are the `localhost` ones. Without a backend, run `VITE_USE_MOCK=true npm run dev`. The mocks in `src/mocks/` are real backend output, regenerated from the repository root with `.venv/bin/python frontend/scripts/generate_mocks.py`.
 
-## Deployment (Vercel)
-The frontend is configured for independent static hosting on Vercel:
-- **Framework Preset**: Vite
-- **Root Directory**: `frontend`
-- **Build Command**: `npm run build`
-- **Output Directory**: `dist`
-For detailed deployment instructions, refer to [docs/deployment.md](../docs/deployment.md).
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | `http://localhost:8000` | Backend base URL (empty = same origin) |
+| `VITE_USE_MOCK` | `false` | `true` serves the bundled mocks instead of calling the API |
+
+Both are read at build time (see `.env.example`).
+
+## What the UI does
+
+- Choose a format, then paste, upload or load a sample, and analyse it (`POST /api/v1/validate`).
+- Status badge, partial-analysis banner, diagnostics and suggested fixes with previews.
+- Dependency graph (React Flow, Dagre layout). Arrows point from a prerequisite to the item that depends on it. Boxes are coloured by their most severe issue, cycle edges are red and animated, and `depends_on` edges are dashed. The layout picks left-to-right or top-to-bottom, whichever fits. Full screen is available from the graph controls.
+- Clicking a diagnostic selects its text in the editor and highlights its nodes. Clicking a node shows its details: metadata, linked issues and, for Dockerfile stages, the ordered instructions, each linked to its line.
+- All graph meaning (cycles, validity, order) comes from the backend response; the UI does not re-analyse.
+
+## Checks
+
+```bash
+npm run lint    # oxlint
+npm test        # vitest: src/analysis.test.ts (helpers), src/App.test.tsx (UI, jsdom)
+npm run build   # tsc -b (type check) + vite build
+```
+
+CI runs all three (`.github/workflows/ci.yml`).

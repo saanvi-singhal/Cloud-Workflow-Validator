@@ -1,0 +1,16 @@
+# `deploy` needs a job that does not exist (typo of `build`).
+# Expect UNRESOLVED_DEPENDENCY at `biuld`, with a "did you mean" fix.
+name: CI
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make build
+
+  deploy:
+    needs: [biuld]
+    runs-on: ubuntu-latest
+    steps:
+      - run: make deploy
