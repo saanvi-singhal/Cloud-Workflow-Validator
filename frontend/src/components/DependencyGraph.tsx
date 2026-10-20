@@ -39,6 +39,12 @@ const NODE_COLORS: Record<Severity | 'none', { border: string; background: strin
 };
 const CYCLE_EDGE = '#ef4444';
 
+const NODE_NOUN: Record<AnalysisResult['format'], string> = {
+  yaml: 'workflow jobs',
+  dockerfile: 'build stages',
+  terraform: 'Terraform blocks',
+};
+
 export default function DependencyGraph({ result }: { result: AnalysisResult }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
@@ -126,32 +132,43 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
     };
   }, [result]);
 
+  const graphEmpty = result.graph.nodes.length === 0;
   const order = result.execution_order;
   const orderNote = executionOrderNote(result);
 
   return (
     <div className="mt-4">
-      <div ref={containerRef} className="h-80 overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false} onInit={setFlow}>
-          <Background />
-          <Controls showInteractive={false}>
-            <ControlButton
-              onClick={toggleFullscreen}
-              title={isFullscreen ? 'Exit full screen' : 'Full screen'}
-              aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
-            >
-              {/* React Flow's stylesheet fills control icons; this one is an outline. */}
-              <svg viewBox="0 0 24 24" style={{ fill: 'none' }} stroke="currentColor" strokeWidth="2.5">
-                {isFullscreen ? (
-                  <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
-                ) : (
-                  <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
-                )}
-              </svg>
-            </ControlButton>
-          </Controls>
-        </ReactFlow>
-      </div>
+      {graphEmpty ? (
+        <div className="flex h-80 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+          <p className="font-medium text-slate-700">Nothing to draw</p>
+          <p className="mt-1 max-w-sm text-sm text-slate-500">
+            No {NODE_NOUN[result.format]} were found in this file, so there is no dependency graph.
+            See the diagnostics below.
+          </p>
+        </div>
+      ) : (
+        <div ref={containerRef} className="h-80 overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <ReactFlow nodes={nodes} edges={edges} fitView nodesConnectable={false} onInit={setFlow}>
+            <Background />
+            <Controls showInteractive={false}>
+              <ControlButton
+                onClick={toggleFullscreen}
+                title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+                aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+              >
+                {/* React Flow's stylesheet fills control icons; this one is an outline. */}
+                <svg viewBox="0 0 24 24" style={{ fill: 'none' }} stroke="currentColor" strokeWidth="2.5">
+                  {isFullscreen ? (
+                    <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
+                  ) : (
+                    <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" />
+                  )}
+                </svg>
+              </ControlButton>
+            </Controls>
+          </ReactFlow>
+        </div>
+      )}
 
       <div className="mt-2 space-y-1 text-xs text-slate-600">
         <p>Arrows point from a prerequisite to the item that depends on it.</p>
