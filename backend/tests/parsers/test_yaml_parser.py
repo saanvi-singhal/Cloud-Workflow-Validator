@@ -261,3 +261,104 @@ def test_reusable_workflow_job_needs_no_runs_on_or_steps(adapter):
     source = "on: push\njobs:\n  call:\n    uses: org/repo/.github/workflows/w.yml@v1\n"
     result = compile_source(source, SourceFormat.yaml, adapter=adapter)
     assert result.diagnostics == []
+
+
+ADVANCED = """\
+name: Advanced YAML Parser Test
+on:
+  push:
+    branches:
+      - main
+
+x-node-version: &node_version "18.x"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [16, 18.0]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: *node_version
+      - name: Deploy
+        env:
+          ENABLE_DEBUG: true
+          PORT: 8080
+        run: npm run deploy
+"""
+
+
+def test_unknown_top_level_key_and_lost_zero_are_reported(adapter):
+    result = compile_source(ADVANCED, SourceFormat.yaml, adapter=adapter)
+    assert result.valid is False
+    assert [
+        (d.code, d.severity.value, d.source_location.start_line)
+        for d in result.diagnostics
+    ] == [
+        (DiagnosticCode.YAML_SYNTAX_ERROR, "error", 7),
+        (DiagnosticCode.SECURITY_RULE_VIOLATION, "warning", 14),
+    ]
+    key, number = result.diagnostics
+    assert key.message.startswith("'x-node-version' is not a top-level workflow key")
+    assert "no 'x-' extension keys" in key.message
+    # `        node: [16, 18.0]`: 18.0 starts at column 20; end is exclusive.
+    span = number.source_location
+    assert (span.start_column, span.end_column) == (20, 24)
+    assert "GitHub passes '18', not '18.0'" in number.message
+    [_, fix] = result.recommendations
+    assert fix.rule_id == "GHA_NUMBER_LOSES_ZERO"
+    assert fix.related_node_ids == ["gha:job:build"]
+    assert fix.proposed_change.preview == '- 18.0\n+ "18.0"'
+
+
+def test_booleans_and_numbers_in_env_are_accepted(adapter):
+    # GitHub converts these to the strings "true" and "8080".
+    source = (
+        ADVANCED.replace('x-node-version: &node_version "18.x"\n', "")
+        .replace("*node_version", '"18.x"')
+        .replace("[16, 18.0]", "[16, 18]")
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.diagnostics == []
+    assert result.valid is True
+
+
+@pytest.mark.parametrize(
+    ("value", "fires"),
+    [
+        ("3.10", True),
+        ("[3.9, 3.10]", True),
+        ("1.20", True),
+        ("3.11", False),
+        ('"3.10"', False),
+        ("3", False),
+        ("true", False),
+    ],
+)
+def test_only_unquoted_numbers_ending_in_zero_fire(adapter, value, fires):
+    source = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    strategy:\n      matrix:\n"
+        f"        python: {value}\n    steps:\n      - run: echo\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    codes = [d.code for d in result.diagnostics]
+    assert (DiagnosticCode.SECURITY_RULE_VIOLATION in codes) is fires
+
+
+def test_unknown_job_and_step_keys_are_reported(adapter):
+    source = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    run-on: y\n    steps:\n"
+        "      - run: echo\n        working_directory: src\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert [
+        (d.source_location.start_line, d.message.split(",")[0])
+        for d in result.diagnostics
+    ] == [
+        (5, "'run-on' is not a key of job 'a'"),
+        (8, "'working_directory' is not a key of step 1 of job 'a'"),
+    ]

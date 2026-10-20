@@ -96,7 +96,7 @@ The format is `<format prefix>:<kind>:<identity>`. No UUIDs or hashes. If the sa
 
 | Code | Severity | Emitted by | Meaning |
 |---|---|---|---|
-| `YAML_SYNTAX_ERROR` / `DOCKERFILE_SYNTAX_ERROR` / `TERRAFORM_SYNTAX_ERROR` | error | parsers | Source could not be parsed (`graph` is empty), or is not valid for the format: e.g. a repeated YAML key, YAML with no `jobs` (not a GitHub Actions workflow), a GitHub Actions schema violation (missing `on`, an unknown trigger event, a job without `runs-on`, a step without exactly one of `uses`/`run`), a Dockerfile with no `FROM` or an unknown instruction |
+| `YAML_SYNTAX_ERROR` / `DOCKERFILE_SYNTAX_ERROR` / `TERRAFORM_SYNTAX_ERROR` | error | parsers | Source could not be parsed (`graph` is empty), or is not valid for the format: e.g. a repeated YAML key, YAML with no `jobs` (not a GitHub Actions workflow), a GitHub Actions schema violation (missing `on`, an unknown trigger event, a key GitHub does not allow at workflow, job or step level such as `x-...`, a job without `runs-on`, a step without exactly one of `uses`/`run`), a Dockerfile with no `FROM` or an unknown instruction |
 | `DUPLICATE_NODE_ID` | error | parsers, `validation.py` | Same identity declared twice |
 | `UNRESOLVED_DEPENDENCY` | error | parsers | Reference to something not declared; **no edge is created** |
 | `DEPENDENCY_CYCLE` | error | `cycles.py` | One per cyclic region (Tarjan SCC), with a readable path (DFS); self-loops included |
@@ -175,6 +175,16 @@ These are literal-only: a value that comes from a variable or expression never t
 | `DF_COPY_ALL_BEFORE_INSTALL` | info | `COPY . .` (or `ADD .`) before a dependency install (`npm install/ci`, `pip install -r`, `poetry install`, …) in the same stage |
 | `DF_CONSECUTIVE_RUN` | info | two or more `RUN` in a row in one stage; reported once per group, at its first `RUN` |
 | `DF_APT_UNPINNED_PACKAGES` | info | `apt-get install` packages without `=version` |
+
+## 8b. GitHub Actions rules
+
+`app/rules/github_actions_rules.py`, called by the YAML adapter. Workflows GitHub would reject are handled by the parser's schema checks (`YAML_SYNTAX_ERROR`). These rules flag workflows GitHub accepts but that likely do not do what was meant.
+
+| rule_id | Severity | Fires when |
+|---|---|---|
+| `GHA_NUMBER_LOSES_ZERO` | warning | an unquoted number with a trailing zero in its fraction (`3.10`, `18.0`) anywhere in a job; YAML reads it as a number, so GitHub sees `3.1` / `18` |
+
+Booleans and numbers in `env` (`DEBUG: true`, `PORT: 8080`) are *not* flagged: GitHub converts them to the strings `"true"` and `"8080"`.
 
 ## 9. Recommendations
 

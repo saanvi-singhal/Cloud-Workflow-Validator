@@ -27,10 +27,57 @@ from app.models import (
     SourceFormat,
     SourceLocation,
 )
+from app.rules.github_actions_rules import run_github_actions_rules
 
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.yaml]
 
 _DUPLICATE_KEY = re.compile(r'duplicate key "(.*?)"')
+
+# Keys GitHub allows; any other key makes it reject the workflow
+# (https://docs.github.com/actions/reference/workflow-syntax-for-github-actions).
+# Unlike Docker Compose, there are no `x-` extension keys.
+WORKFLOW_KEYS = frozenset(
+    {"name", "run-name", "on", "permissions", "env", "defaults", "concurrency", "jobs"}
+)
+JOB_KEYS = frozenset(
+    {
+        "name",
+        "permissions",
+        "needs",
+        "if",
+        "runs-on",
+        "snapshot",
+        "environment",
+        "concurrency",
+        "outputs",
+        "env",
+        "defaults",
+        "steps",
+        "timeout-minutes",
+        "strategy",
+        "continue-on-error",
+        "container",
+        "services",
+        "uses",
+        "with",
+        "secrets",
+    }
+)
+STEP_KEYS = frozenset(
+    {
+        "id",
+        "if",
+        "name",
+        "uses",
+        "run",
+        "working-directory",
+        "shell",
+        "with",
+        "env",
+        "continue-on-error",
+        "timeout-minutes",
+    }
+)
 
 # Events that can trigger a workflow
 # (https://docs.github.com/actions/reference/events-that-trigger-workflows).
@@ -296,6 +343,7 @@ class _YamlExtractor:
                     )
 
         self._check_triggers(data)
+        self._check_unknown_keys(data, WORKFLOW_KEYS, "a top-level workflow key")
         for job_key, job_val in jobs.items():
             node_id = self.job_to_id.get(str(job_key))
             if node_id is not None and isinstance(job_val, dict):
@@ -322,6 +370,31 @@ class _YamlExtractor:
                 node_ids=(node_id,) if node_id else (),
             )
         )
+
+    def _check_unknown_keys(
+        self,
+        mapping: Any,
+        allowed: frozenset[str],
+        what: str,
+        node_id: str | None = None,
+    ) -> None:
+        for key in mapping:
+            if str(key) not in allowed:
+                hint = (
+                    " GitHub Actions has no 'x-' extension keys (that is a "
+                    "Docker Compose feature). To share a value, put the anchor "
+                    "on a valid key, e.g. under the top-level env."
+                    if str(key).startswith("x-")
+                    else ""
+                )
+                self._schema_error(
+                    f"'{key}' is not {what}, so GitHub will reject this "
+                    f"workflow.{hint}",
+                    _position(
+                        _key_position(mapping, key), self.filename, len(str(key))
+                    ),
+                    node_id,
+                )
 
     def _check_triggers(self, data: Any) -> None:
         """`on` must exist and name only real events."""
@@ -363,6 +436,7 @@ class _YamlExtractor:
     ) -> None:
         """A job needs `runs-on`, and each step exactly one of `uses` or `run`."""
         job_position = _key_position(jobs, job_key)
+        self._check_unknown_keys(job, JOB_KEYS, f"a key of job '{job_key}'", node_id)
         # A job that calls a reusable workflow (`uses:` on the job) has no
         # runner and no steps of its own.
         if "uses" in job:
@@ -406,6 +480,10 @@ class _YamlExtractor:
                     "A step must have exactly one of them.",
                     position,
                     node_id,
+                )
+            if isinstance(step, dict):
+                self._check_unknown_keys(
+                    step, STEP_KEYS, f"a key of {label[0].lower()}{label[1:]}", node_id
                 )
 
 
@@ -505,9 +583,15 @@ class YamlAdapter:
 
         extractor = _YamlExtractor(filename)
         ir = extractor.extract(parsed)
+        jobs = parsed.get("jobs") if isinstance(parsed, dict) else None
+        rule_findings = (
+            run_github_actions_rules(jobs, source, filename, extractor.job_to_id)
+            if isinstance(jobs, dict)
+            else []
+        )
         return ParseResult(
             ir=ir,
-            findings=[*duplicate_findings, *extractor.findings],
+            findings=[*duplicate_findings, *extractor.findings, *rule_findings],
             dependency_analysis_complete=extractor.complete,
         )
 

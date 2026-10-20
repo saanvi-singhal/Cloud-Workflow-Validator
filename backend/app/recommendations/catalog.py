@@ -487,6 +487,25 @@ def _df_apt_unpinned_packages(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _gha_number_loses_zero(finding: Finding, index: int) -> Recommendation:
+    text = finding.details.get("text", "")
+    seen = finding.details.get("seen", "")
+    return _make(
+        "GHA_NUMBER_LOSES_ZERO",
+        finding,
+        index,
+        "Quote the version number",
+        f"Unquoted, {text} is a number, and GitHub turns it into the string "
+        f"'{seen}'. For versions this silently selects the wrong one (3.10 "
+        "becomes 3.1).",
+        ProposedChange(
+            description=f'Write the value as the string "{text}".',
+            preview=f'- {text}\n+ "{text}"',
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
 SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
     "TF_S3_PUBLIC_ACL": _security_s3_public_acl,
     "TF_SG_OPEN_INGRESS": _security_open_ingress,
@@ -501,6 +520,7 @@ SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = 
     "DF_COPY_ALL_BEFORE_INSTALL": _df_copy_all_before_install,
     "DF_CONSECUTIVE_RUN": _df_consecutive_run,
     "DF_APT_UNPINNED_PACKAGES": _df_apt_unpinned_packages,
+    "GHA_NUMBER_LOSES_ZERO": _gha_number_loses_zero,
 }
 
 
