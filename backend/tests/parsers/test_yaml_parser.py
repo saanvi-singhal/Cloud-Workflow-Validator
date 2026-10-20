@@ -499,3 +499,60 @@ def test_secrets_in_job_if(adapter):
     [diagnostic] = result.diagnostics
     assert diagnostic.message.startswith("The 'if' of job 'a' uses the secrets context")
     assert diagnostic.source_location.start_line == 4
+
+
+CALLER = """\
+name: Deploy Caller
+on: [push]
+
+jobs:
+  deploy-infrastructure:
+    uses: my-org/shared-workflows/.github/workflows/terraform.yml@main
+    steps:
+      - run: echo "This will fail workflow validation"
+    env:
+      TF_VAR_environment: "production"
+    with:
+      aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+"""
+
+
+def test_reusable_workflow_call_rejects_steps_env_and_secrets_in_with(adapter):
+    result = compile_source(CALLER, SourceFormat.yaml, adapter=adapter)
+    assert result.valid is False
+    assert [
+        (d.source_location.start_line, d.message.split(",")[0])
+        for d in result.diagnostics
+    ] == [
+        (7, "'steps' is not allowed in job 'deploy-infrastructure'"),
+        (9, "'env' is not allowed in job 'deploy-infrastructure'"),
+        (
+            12,
+            "Input 'aws_access_key' of job 'deploy-infrastructure' uses the "
+            "secrets context",
+        ),
+    ]
+    secret = result.diagnostics[-1].source_location
+    assert (secret.start_column, secret.end_column) == (27, 34)
+
+
+def test_valid_reusable_workflow_call(adapter):
+    source = (
+        "on: push\njobs:\n  build:\n    runs-on: x\n    steps:\n      - run: echo\n"
+        "  deploy:\n    needs: build\n    if: github.ref == 'refs/heads/main'\n"
+        "    uses: org/repo/.github/workflows/deploy.yml@v1\n"
+        "    strategy:\n      matrix:\n        env: [staging, prod]\n"
+        "    with:\n      environment: ${{ matrix.env }}\n"
+        "    secrets:\n      token: ${{ secrets.DEPLOY_TOKEN }}\n"
+        "    permissions:\n      contents: read\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert result.diagnostics == []
+
+
+def test_secrets_inherit_is_accepted(adapter):
+    source = (
+        "on: push\njobs:\n  call:\n    uses: org/repo/.github/workflows/w.yml@v1\n"
+        "    secrets: inherit\n"
+    )
+    assert compile_source(source, SourceFormat.yaml, adapter=adapter).diagnostics == []

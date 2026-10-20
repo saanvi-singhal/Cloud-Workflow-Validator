@@ -12,6 +12,11 @@ and reproducibility risks, ``info`` for image size and build-cache advice.
 =========================  ========  =========================================
 rule_id                    severity  fires when
 =========================  ========  =========================================
+DF_EXEC_FORM_NOT_JSON      error     ``CMD``/``ENTRYPOINT``/``RUN``/``SHELL``/
+                                     ``HEALTHCHECK CMD`` written as ``[...]``
+                                     but not valid JSON (e.g. single quotes):
+                                     Docker runs it as a shell string, so the
+                                     command cannot work
 DF_APT_MISSING_YES         error     ``apt-get``/``apt`` install, upgrade or
                                      remove without ``-y``: there is no one to
                                      answer the prompt, so the build aborts
@@ -49,6 +54,7 @@ from typing import Any
 from app.compiler.findings import Finding, make_finding
 from app.models import DiagnosticCode, Severity, SourceLocation
 
+RULE_EXEC_FORM_NOT_JSON = "DF_EXEC_FORM_NOT_JSON"
 RULE_APT_MISSING_YES = "DF_APT_MISSING_YES"
 RULE_UNPINNED_BASE_IMAGE = "DF_UNPINNED_BASE_IMAGE"
 RULE_RUNS_AS_ROOT = "DF_RUNS_AS_ROOT"
@@ -230,6 +236,39 @@ def check_apt(instruction: DockerInstruction) -> Iterator[Finding]:
                 )
 
 
+EXEC_FORM_INSTRUCTIONS = frozenset({"CMD", "ENTRYPOINT", "RUN", "SHELL"})
+
+
+def check_exec_form_json(instruction: DockerInstruction) -> Iterator[Finding]:
+    value = instruction.value.strip()
+    if instruction.keyword == "HEALTHCHECK":
+        words = value.split(None)
+        rest = [w for w in words if not w.startswith("--")]
+        if not rest or rest[0].upper() != "CMD":
+            return
+        value = value[value.upper().index("CMD") + 3 :].strip()
+    elif instruction.keyword not in EXEC_FORM_INSTRUCTIONS:
+        return
+    if not (value.startswith("[") and value.endswith("]")):
+        return
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, list) and all(isinstance(p, str) for p in parsed):
+        return
+    hint = " JSON strings need double quotes." if "'" in value else ""
+    yield _finding(
+        RULE_EXEC_FORM_NOT_JSON,
+        Severity.error,
+        f"{instruction.keyword} {value} looks like the exec form but is not a "
+        f"valid JSON array of strings.{hint} Docker then runs the whole text as "
+        "a shell command, which fails (e.g. '[nginx,: not found').",
+        instruction,
+        value=value,
+    )
+
+
 def check_add_local_file(instruction: DockerInstruction) -> Iterator[Finding]:
     if instruction.keyword != "ADD":
         return
@@ -387,6 +426,7 @@ def check_consecutive_runs(
 
 
 INSTRUCTION_RULES: tuple[Callable[[DockerInstruction], Iterator[Finding]], ...] = (
+    check_exec_form_json,
     check_apt,
     check_add_local_file,
 )

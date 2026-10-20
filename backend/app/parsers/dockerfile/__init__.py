@@ -79,6 +79,39 @@ def _make_loc(
     )
 
 
+def _healthcheck_problem(value: str) -> str | None:
+    """HEALTHCHECK [--options] CMD <command> | HEALTHCHECK NONE."""
+    words = [w for w in value.split() if not w.startswith("--")]
+    if not words:
+        return "HEALTHCHECK needs CMD <command> or NONE."
+    kind = words[0].upper()
+    if kind == "NONE":
+        return None if len(words) == 1 else "HEALTHCHECK NONE takes no command."
+    if kind != "CMD":
+        return (
+            f"HEALTHCHECK needs the CMD keyword before the command "
+            f"(found '{words[0]}'): HEALTHCHECK [options] CMD <command>."
+        )
+    if len(words) == 1:
+        return "HEALTHCHECK CMD needs a command."
+    return None
+
+
+def _onbuild_problem(value: str) -> str | None:
+    """ONBUILD <instruction>, where some instructions are not allowed."""
+    words = value.split()
+    if not words:
+        return "ONBUILD needs an instruction to run later."
+    trigger = words[0].upper()
+    if trigger == "ONBUILD":
+        return "ONBUILD ONBUILD is not allowed: ONBUILD triggers cannot be chained."
+    if trigger in ("FROM", "MAINTAINER"):
+        return f"ONBUILD {trigger} is not allowed."
+    if trigger not in KNOWN_INSTRUCTIONS:
+        return f"ONBUILD runs an unknown instruction '{words[0]}'."
+    return None
+
+
 class _StageInfo:
     def __init__(
         self,
@@ -135,7 +168,9 @@ class _DockerfileExtractor:
         - an unknown instruction keyword;
         - an instruction other than ARG before the first FROM;
         - a file with no FROM at all (including an empty file). Then only that
-          is reported, not every instruction as "before FROM".
+          is reported, not every instruction as "before FROM";
+        - a HEALTHCHECK without CMD or NONE, and ONBUILD with a trigger
+          Docker forbids (ONBUILD, FROM, MAINTAINER) or does not know.
         """
         instructions = [e for e in structure if e.get("instruction") != "COMMENT"]
         seen_from = False
@@ -161,6 +196,23 @@ class _DockerfileExtractor:
                         Severity.error,
                         f"'{keyword}' appears before the first FROM. Only ARG "
                         "may come before FROM.",
+                        self._keyword_location(entry),
+                    )
+                )
+
+        for entry in instructions:
+            keyword = entry.get("instruction", "").upper()
+            problem = None
+            if keyword == "HEALTHCHECK":
+                problem = _healthcheck_problem(entry.get("value", ""))
+            elif keyword == "ONBUILD":
+                problem = _onbuild_problem(entry.get("value", ""))
+            if problem:
+                self.findings.append(
+                    make_finding(
+                        DiagnosticCode.DOCKERFILE_SYNTAX_ERROR,
+                        Severity.error,
+                        f"{problem} Docker will refuse to build this file.",
                         self._keyword_location(entry),
                     )
                 )

@@ -226,3 +226,47 @@ def test_empty_dockerfile_is_invalid(adapter):
     assert [d.message.split(".")[0] for d in result.diagnostics] == [
         "No FROM instruction found"
     ]
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        (
+            "HEALTHCHECK --interval=5m --timeout=3s \\\n  curl -f http://localhost/",
+            "HEALTHCHECK needs the CMD keyword before the command (found 'curl')",
+        ),
+        ("HEALTHCHECK --interval=5m", "HEALTHCHECK needs CMD <command> or NONE."),
+        ("HEALTHCHECK CMD", "HEALTHCHECK CMD needs a command."),
+        ("HEALTHCHECK NONE curl", "HEALTHCHECK NONE takes no command."),
+        (
+            'ONBUILD ONBUILD RUN echo "x"',
+            "ONBUILD ONBUILD is not allowed: ONBUILD triggers cannot be chained.",
+        ),
+        ("ONBUILD FROM alpine", "ONBUILD FROM is not allowed."),
+        ("ONBUILD RUNN x", "ONBUILD runs an unknown instruction 'RUNN'."),
+    ],
+)
+def test_healthcheck_and_onbuild_forms_docker_rejects(adapter, line, message):
+    result = compile_source(
+        f"FROM alpine:3.20\n{line}\n", SourceFormat.dockerfile, adapter=adapter
+    )
+    [diagnostic] = parser_diagnostics(result)
+    assert diagnostic.code == DiagnosticCode.DOCKERFILE_SYNTAX_ERROR
+    assert diagnostic.message.startswith(message)
+    assert diagnostic.source_location.start_line == 2
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "HEALTHCHECK --interval=5m --timeout=3s CMD curl -f http://localhost/",
+        "HEALTHCHECK NONE",
+        "ONBUILD RUN echo ok",
+        "ONBUILD COPY . /app",
+    ],
+)
+def test_valid_healthcheck_and_onbuild_are_accepted(adapter, line):
+    result = compile_source(
+        f"FROM alpine:3.20\n{line}\n", SourceFormat.dockerfile, adapter=adapter
+    )
+    assert parser_diagnostics(result) == []

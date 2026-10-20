@@ -65,6 +65,20 @@ JOB_KEYS = frozenset(
         "secrets",
     }
 )
+# The only keys a job that calls a reusable workflow (`uses:`) may have.
+REUSABLE_CALL_KEYS = frozenset(
+    {
+        "name",
+        "uses",
+        "with",
+        "secrets",
+        "strategy",
+        "needs",
+        "if",
+        "concurrency",
+        "permissions",
+    }
+)
 STEP_KEYS = frozenset(
     {
         "id",
@@ -399,21 +413,46 @@ class _YamlExtractor:
                     node_id,
                 )
 
+    def _check_reusable_call(self, job_key: str, node_id: str, job: Any) -> None:
+        """A job with ``uses:`` runs another workflow; it has no runner or steps."""
+        for key in job:
+            if str(key) in JOB_KEYS and str(key) not in REUSABLE_CALL_KEYS:
+                self._schema_error(
+                    f"'{key}' is not allowed in job '{job_key}', which calls a "
+                    "reusable workflow with 'uses'; such a job only takes name, "
+                    "uses, with, secrets, strategy, needs, if, concurrency and "
+                    "permissions. GitHub will reject this workflow.",
+                    _position(_key_position(job, key), self.filename, len(str(key))),
+                    node_id,
+                )
+        inputs = job.get("with")
+        if isinstance(inputs, dict):
+            for name, value in inputs.items():
+                if isinstance(value, str) and _SECRETS_CONTEXT.search(value):
+                    self._schema_error(
+                        f"Input '{name}' of job '{job_key}' uses the secrets "
+                        "context, which is not available in 'with'. Pass secrets "
+                        "under 'secrets:' (or use 'secrets: inherit').",
+                        self._secrets_location(inputs, name),
+                        node_id,
+                    )
+
+    def _secrets_location(self, mapping: Any, key: Any) -> SourceLocation | None:
+        """The ``secrets`` word in ``mapping[key]``, or the value's start."""
+        position = _value_position(mapping, key)
+        if position is not None and position[0] < len(self.lines):
+            line, col = position
+            found = _SECRETS_CONTEXT.search(self.lines[line], col)
+            if found:
+                return _position((line, found.start()), self.filename, len("secrets"))
+        return _position(position, self.filename)
+
     def _check_if_secrets(self, mapping: Any, where: str, node_id: str) -> None:
         """GitHub rejects ``if:`` conditions that use the ``secrets`` context."""
         condition = mapping.get("if")
         if not isinstance(condition, str) or not _SECRETS_CONTEXT.search(condition):
             return
-        position = _value_position(mapping, "if")
-        location = _position(position, self.filename)
-        if position is not None and self.lines:
-            line, col = position
-            text = self.lines[line] if line < len(self.lines) else ""
-            found = _SECRETS_CONTEXT.search(text, col)
-            if found:
-                location = _position(
-                    (line, found.start()), self.filename, len("secrets")
-                )
+        location = self._secrets_location(mapping, "if")
         self._schema_error(
             f"The 'if' of {where} uses the secrets context, which is not "
             "available in conditions, so GitHub will reject this workflow. Map "
@@ -467,6 +506,7 @@ class _YamlExtractor:
         # A job that calls a reusable workflow (`uses:` on the job) has no
         # runner and no steps of its own.
         if "uses" in job:
+            self._check_reusable_call(job_key, node_id, job)
             return
 
         if "runs-on" not in job:

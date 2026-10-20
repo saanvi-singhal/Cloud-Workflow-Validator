@@ -15,6 +15,7 @@ recommendation. Each rule follows spec 6.2:
 from __future__ import annotations
 
 import difflib
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -324,6 +325,31 @@ def _security_db_public(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _df_exec_form_not_json(finding: Finding, index: int) -> Recommendation:
+    value = finding.details.get("value", "")
+    fixed = value.replace("'", '"')
+    preview = None
+    try:
+        if isinstance(json.loads(fixed), list):
+            preview = f"- {value}\n+ {fixed}"
+    except ValueError:
+        pass
+    return _make(
+        "DF_EXEC_FORM_NOT_JSON",
+        finding,
+        index,
+        "Write the exec form as a JSON array",
+        "Docker only treats [...] as a list of arguments when it is valid JSON. "
+        "Otherwise it hands the whole line to /bin/sh, brackets and quotes "
+        "included, and the command fails.",
+        ProposedChange(
+            description="Use double quotes for every element.",
+            preview=preview,
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
 def _df_apt_missing_yes(finding: Finding, index: int) -> Recommendation:
     command = finding.details.get("command", "")
     sub = finding.details.get("subcommand", "install")
@@ -533,6 +559,7 @@ SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = 
     "TF_SG_OPEN_INGRESS": _security_open_ingress,
     "TF_HARDCODED_SECRET": _security_hardcoded_secret,
     "TF_DB_PUBLICLY_ACCESSIBLE": _security_db_public,
+    "DF_EXEC_FORM_NOT_JSON": _df_exec_form_not_json,
     "DF_APT_MISSING_YES": _df_apt_missing_yes,
     "DF_UNPINNED_BASE_IMAGE": _df_unpinned_base_image,
     "DF_RUNS_AS_ROOT": _df_runs_as_root,

@@ -96,7 +96,7 @@ The format is `<format prefix>:<kind>:<identity>`. No UUIDs or hashes. If the sa
 
 | Code | Severity | Emitted by | Meaning |
 |---|---|---|---|
-| `YAML_SYNTAX_ERROR` / `DOCKERFILE_SYNTAX_ERROR` / `TERRAFORM_SYNTAX_ERROR` | error | parsers | Source could not be parsed (`graph` is empty), or is not valid for the format: e.g. a repeated YAML key, YAML with no `jobs` (not a GitHub Actions workflow), a GitHub Actions schema violation (missing `on`, an unknown trigger event, a key GitHub does not allow at workflow, job or step level such as `x-...`, the `secrets` context in a job or step `if`, a job without `runs-on`, a step without exactly one of `uses`/`run`), a Dockerfile with no `FROM` or an unknown instruction |
+| `YAML_SYNTAX_ERROR` / `DOCKERFILE_SYNTAX_ERROR` / `TERRAFORM_SYNTAX_ERROR` | error | parsers | Source could not be parsed (`graph` is empty), or is not valid for the format: e.g. a repeated YAML key, YAML with no `jobs` (not a GitHub Actions workflow), a GitHub Actions schema violation (missing `on`, an unknown trigger event, a key GitHub does not allow at workflow, job or step level such as `x-...`, the `secrets` context in a job or step `if` or in a reusable-workflow call's `with`, a key other than `name/uses/with/secrets/strategy/needs/if/concurrency/permissions` in a job that calls a reusable workflow, a job without `runs-on`, a step without exactly one of `uses`/`run`), a Dockerfile with no `FROM` or an unknown instruction, `HEALTHCHECK` without `CMD`/`NONE`, `ONBUILD ONBUILD`/`FROM`/`MAINTAINER` |
 | `DUPLICATE_NODE_ID` | error | parsers, `validation.py` | Same identity declared twice |
 | `UNRESOLVED_DEPENDENCY` | error | parsers | Reference to something not declared; **no edge is created** |
 | `DEPENDENCY_CYCLE` | error | `cycles.py` | One per cyclic region (Tarjan SCC), with a readable path (DFS); self-loops included |
@@ -167,6 +167,7 @@ These are literal-only: a value that comes from a variable or expression never t
 
 | rule_id | Severity | Fires when |
 |---|---|---|
+| `DF_EXEC_FORM_NOT_JSON` | error | `CMD`/`ENTRYPOINT`/`RUN`/`SHELL`/`HEALTHCHECK CMD` written as `[...]` but not a valid JSON array of strings (e.g. single quotes); Docker runs it as a shell string, so the command fails. The fix previews the double-quoted form |
 | `DF_APT_MISSING_YES` | error | `apt-get`/`apt` install, upgrade or remove without `-y` (also accepts `--yes`, `--assume-yes`, `-qq`, combined flags like `-qy`); the build cannot answer the prompt and aborts |
 | `DF_UNPINNED_BASE_IMAGE` | warning | `FROM` an image with no tag or `:latest` and no `@sha256` digest (earlier stages, `scratch` and `$VAR` images are skipped) |
 | `DF_RUNS_AS_ROOT` | warning | the final stage has no `USER`, or its last `USER` is `root`/`0` |

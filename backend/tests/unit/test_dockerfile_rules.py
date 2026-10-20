@@ -238,3 +238,43 @@ def test_rule_findings_are_linked_to_their_stage_and_have_specific_fixes():
     assert yes.preview == "- apt-get install curl\n+ apt-get install -y curl"
     add = by_rule["DF_ADD_LOCAL_FILE"].proposed_change
     assert add.preview == "- ADD package.json /app/\n+ COPY package.json /app/"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "CMD ['nginx', '-g', 'daemon off;']",
+        "ENTRYPOINT [\"a\", 'b']",
+        'RUN ["echo", "x",]',
+        "SHELL ['/bin/bash', '-c']",
+        "HEALTHCHECK --interval=5m CMD ['curl', '-f', 'http://localhost/']",
+    ],
+)
+def test_exec_form_that_is_not_json_is_an_error(line):
+    result = compile_source(f"{PREFIX}{line}\n{SUFFIX}", SourceFormat.dockerfile)
+    assert result.valid is False
+    assert fired(f"{PREFIX}{line}\n{SUFFIX}") == {"DF_EXEC_FORM_NOT_JSON"}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'CMD ["nginx", "-g", "daemon off;"]',
+        "CMD nginx -g 'daemon off;'",
+        'HEALTHCHECK CMD ["curl", "-f", "http://localhost/"]',
+        "HEALTHCHECK CMD curl -f http://localhost/ || exit 1",
+        "RUN echo '[not exec form]'",
+    ],
+)
+def test_valid_exec_and_shell_forms_are_accepted(line):
+    assert "DF_EXEC_FORM_NOT_JSON" not in fired(f"{PREFIX}{line}\n{SUFFIX}")
+
+
+def test_single_quoted_exec_form_fix_preview():
+    result = compile_source(
+        f"{PREFIX}CMD ['nginx', '-g', 'daemon off;']\n{SUFFIX}", SourceFormat.dockerfile
+    )
+    [fix] = result.recommendations
+    assert fix.proposed_change.preview == (
+        "- ['nginx', '-g', 'daemon off;']\n+ [\"nginx\", \"-g\", \"daemon off;\"]"
+    )
