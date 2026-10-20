@@ -150,3 +150,70 @@ def test_stage_ids_use_the_stage_index(adapter):
         ("docker:stage:1", "stage-1"),
     ]
     assert result.ir.nodes[0].metadata["alias"] == "base"
+
+
+def _errors(result):
+    return [
+        (d.code, d.message.split(".")[0], d.source_location.start_line)
+        for d in result.diagnostics
+        if d.severity.value == "error"
+    ]
+
+
+def test_file_without_from_and_unknown_instruction_is_invalid(adapter):
+    source = (
+        "WORKDIR /app\n"
+        "COPY requirements.txt .\n"
+        "EXPOSE 8000\n"
+        'START ["uvicorn", "main:app"]\n'
+    )
+    result = compile_source(source, SourceFormat.dockerfile, adapter=adapter)
+
+    assert result.valid is False
+    assert _errors(result) == [
+        (DiagnosticCode.DOCKERFILE_SYNTAX_ERROR, "No FROM instruction found", 1),
+        (DiagnosticCode.DOCKERFILE_SYNTAX_ERROR, "Unknown instruction 'START'", 4),
+    ]
+    start = result.diagnostics[-1].source_location
+    assert (start.start_column, start.end_column) == (1, 6)  # end is exclusive
+
+
+def test_unknown_instruction_after_from_is_reported(adapter):
+    result = compile_source(
+        "FROM python:3.12\n  RUNN pip install x\n",
+        SourceFormat.dockerfile,
+        adapter=adapter,
+    )
+    assert result.valid is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.message.startswith("Unknown instruction 'RUNN'")
+    loc = diagnostic.source_location
+    assert (loc.start_line, loc.start_column, loc.end_column) == (2, 3, 7)
+
+
+def test_instruction_before_from_is_reported(adapter):
+    result = compile_source(
+        "WORKDIR /app\nFROM alpine\n", SourceFormat.dockerfile, adapter=adapter
+    )
+    assert _errors(result) == [
+        (
+            DiagnosticCode.DOCKERFILE_SYNTAX_ERROR,
+            "'WORKDIR' appears before the first FROM",
+            1,
+        ),
+    ]
+
+
+def test_arg_and_comments_before_from_are_allowed(adapter):
+    source = "# syntax=docker/dockerfile:1\nARG VERSION=3.12\nFROM python:${VERSION}\n"
+    result = compile_source(source, SourceFormat.dockerfile, adapter=adapter)
+    assert result.valid is True
+    assert result.diagnostics == []
+
+
+def test_empty_dockerfile_is_invalid(adapter):
+    result = compile_source("", SourceFormat.dockerfile, adapter=adapter)
+    assert result.valid is False
+    assert [d.message.split(".")[0] for d in result.diagnostics] == [
+        "No FROM instruction found"
+    ]

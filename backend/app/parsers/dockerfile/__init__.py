@@ -37,6 +37,31 @@ _FROM_PATTERN = re.compile(
 # Regex to match: --from=<stage_name_or_index>
 _COPY_FROM_PATTERN = re.compile(r"--from=(\S+)", re.IGNORECASE)
 
+# Instructions Docker accepts (https://docs.docker.com/reference/dockerfile/).
+# dockerfile-parse accepts any word, so unknown ones are reported here.
+KNOWN_INSTRUCTIONS = frozenset(
+    {
+        "ADD",
+        "ARG",
+        "CMD",
+        "COPY",
+        "ENTRYPOINT",
+        "ENV",
+        "EXPOSE",
+        "FROM",
+        "HEALTHCHECK",
+        "LABEL",
+        "MAINTAINER",
+        "ONBUILD",
+        "RUN",
+        "SHELL",
+        "STOPSIGNAL",
+        "USER",
+        "VOLUME",
+        "WORKDIR",
+    }
+)
+
 
 def _make_loc(
     start_line: int | None, end_line: int | None, filename: str | None
@@ -86,7 +111,75 @@ class _DockerfileExtractor:
         self.index_to_stage: dict[int, _StageInfo] = {}
         self.stages: list[_StageInfo] = []
 
+    def _keyword_location(self, entry: dict[str, Any]) -> SourceLocation | None:
+        """Locate the instruction keyword itself, e.g. `START` on its line."""
+        start_line = entry.get("startline")
+        if start_line is None:
+            return None
+        content = entry.get("content", "")
+        stripped = content.lstrip()
+        column = len(content) - len(stripped) + 1
+        keyword = stripped.split(None, 1)[0] if stripped.strip() else ""
+        return SourceLocation(
+            file=self.filename,
+            start_line=start_line + 1,
+            start_column=column,
+            end_line=start_line + 1,
+            end_column=column + len(keyword),
+        )
+
+    def _check_instructions(self, structure: list[dict[str, Any]]) -> None:
+        """Report what Docker itself rejects before building any stage.
+
+        - an unknown instruction keyword;
+        - an instruction other than ARG before the first FROM;
+        - a file with no FROM at all (including an empty file). Then only that
+          is reported, not every instruction as "before FROM".
+        """
+        instructions = [e for e in structure if e.get("instruction") != "COMMENT"]
+        seen_from = False
+        before_from: list[Finding] = []
+        for entry in instructions:
+            keyword = entry.get("instruction", "").upper()
+            if keyword not in KNOWN_INSTRUCTIONS:
+                self.findings.append(
+                    make_finding(
+                        DiagnosticCode.DOCKERFILE_SYNTAX_ERROR,
+                        Severity.error,
+                        f"Unknown instruction '{entry.get('instruction', '')}'. "
+                        "Docker will refuse to build this file.",
+                        self._keyword_location(entry),
+                    )
+                )
+            elif keyword == "FROM":
+                seen_from = True
+            elif not seen_from and keyword != "ARG":
+                before_from.append(
+                    make_finding(
+                        DiagnosticCode.DOCKERFILE_SYNTAX_ERROR,
+                        Severity.error,
+                        f"'{keyword}' appears before the first FROM. Only ARG "
+                        "may come before FROM.",
+                        self._keyword_location(entry),
+                    )
+                )
+
+        if seen_from:
+            self.findings.extend(before_from)
+        else:
+            self.findings.append(
+                make_finding(
+                    DiagnosticCode.DOCKERFILE_SYNTAX_ERROR,
+                    Severity.error,
+                    "No FROM instruction found. A Dockerfile must start a build "
+                    "stage with FROM.",
+                    SourceLocation(file=self.filename, start_line=1, start_column=1),
+                )
+            )
+
     def extract(self, structure: list[dict[str, Any]]) -> IRGraph:
+        self._check_instructions(structure)
+
         # Pass 1: Collect and declare all stages (FROM instructions)
         stage_idx = 0
         from_instructions: list[dict[str, Any]] = []
