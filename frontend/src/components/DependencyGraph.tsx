@@ -14,6 +14,7 @@ import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { AnalysisResult, Severity } from '../types';
 import {
+  EDGE_TYPE_LABELS,
   cycleHighlights,
   edgeKey,
   executionOrderNote,
@@ -22,7 +23,7 @@ import {
 } from '../analysis';
 
 const MIN_W = 200;
-const H = 44;
+const H = 48;
 const EDGE = '#64748b';
 
 // Approximate size of the graph panel, used only to choose a layout direction.
@@ -59,6 +60,14 @@ const NODE_COLORS: Record<Severity | 'none', { border: string; background: strin
   none: { border: '#94a3b8', background: '#ffffff' },
 };
 const CYCLE_EDGE = '#ef4444';
+const HIGHLIGHT = '0 0 0 3px rgba(99, 102, 241, 0.65)';
+
+// Typed edge styling (spec 8.3): explicit dependencies are dashed so they stand
+// out from references Terraform infers.
+const EDGE_DASH: Record<string, string | undefined> = {
+  terraform_explicit_dependency: '6 4',
+  docker_instruction_order: '2 4',
+};
 
 const NODE_NOUN: Record<AnalysisResult['format'], string> = {
   yaml: 'workflow jobs',
@@ -66,7 +75,14 @@ const NODE_NOUN: Record<AnalysisResult['format'], string> = {
   terraform: 'Terraform blocks',
 };
 
-export default function DependencyGraph({ result }: { result: AnalysisResult }) {
+interface Props {
+  result: AnalysisResult;
+  /** Nodes to ring, e.g. the selected node or a clicked diagnostic's nodes. */
+  highlighted: ReadonlySet<string>;
+  onSelectNode: (id: string | null) => void;
+}
+
+export default function DependencyGraph({ result, highlighted, onSelectNode }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -89,29 +105,38 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
     }
   }
 
-  const { nodes, edges, hasCycle, severitiesShown } = useMemo(() => {
-    const graph = result.graph;
+  // Layout depends only on the result, so selecting a node does not re-run it.
+  const { g, rankdir, drawable } = useMemo(() => {
+    // A line from a box back to itself can't be drawn, so those are shown as a tag on the box.
+    const drawable = result.graph.edges.filter(e => e.source !== e.target);
+    // Long chains read best left to right, wide fan-outs top to bottom; use
+    // whichever layout can be drawn larger in the panel.
+    const horizontal = layout(result.graph.nodes, drawable, 'LR');
+    const vertical = layout(result.graph.nodes, drawable, 'TB');
+    const chosen = vertical.scale > horizontal.scale * 1.1 ? vertical : horizontal;
+    return { ...chosen, drawable };
+  }, [result]);
+
+  const { nodes, edges, hasCycle, severitiesShown, edgeTypes } = useMemo(() => {
     // Cycle membership and severities come from the backend's diagnostics and
     // recommendations; the frontend does not re-analyse the graph.
     const severities = nodeSeverities(result);
     const cycles = cycleHighlights(result);
 
-    // A line from a box back to itself can't be drawn, so those are shown as a tag on the box.
-    const drawable = graph.edges.filter(e => e.source !== e.target);
-
-    // Long chains read best left to right, wide fan-outs top to bottom; use
-    // whichever layout can be drawn larger in the panel.
-    const horizontal = layout(graph.nodes, drawable, 'LR');
-    const vertical = layout(graph.nodes, drawable, 'TB');
-    const { g, rankdir } = vertical.scale > horizontal.scale * 1.1 ? vertical : horizontal;
-
-    const nodes: Node[] = graph.nodes.map(n => {
+    const nodes: Node[] = result.graph.nodes.map(n => {
       const p = g.node(n.id);
       const colors = NODE_COLORS[severities.get(n.id) ?? 'none'];
       const width = nodeWidth(n.label);
       return {
         id: n.id,
-        data: { label: cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label },
+        data: {
+          label: (
+            <div className="leading-tight">
+              <div className="text-[9px] uppercase tracking-wide text-slate-400">{n.type}</div>
+              <div>{cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label}</div>
+            </div>
+          ),
+        },
         position: { x: p.x - width / 2, y: p.y - H / 2 },
         // Edges leave in the layout direction and enter from the opposite side.
         sourcePosition: rankdir === 'LR' ? Position.Right : Position.Bottom,
@@ -119,8 +144,11 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
         style: {
           width,
           fontSize: 12,
+          padding: '4px 8px',
+          cursor: 'pointer',
           border: `2px solid ${colors.border}`,
           background: colors.background,
+          boxShadow: highlighted.has(n.id) ? HIGHLIGHT : undefined,
         },
       };
     });
@@ -133,7 +161,11 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
         target: e.target,
         label: e.label ?? undefined,
         animated: onCycle,
-        style: { stroke: onCycle ? CYCLE_EDGE : EDGE, strokeWidth: onCycle ? 2 : 1.5 },
+        style: {
+          stroke: onCycle ? CYCLE_EDGE : EDGE,
+          strokeWidth: onCycle ? 2 : 1.5,
+          strokeDasharray: EDGE_DASH[e.type],
+        },
         labelStyle: { fontSize: 10 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -149,8 +181,9 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
       edges,
       hasCycle: cycles.nodes.size > 0,
       severitiesShown: new Set(severities.values()),
+      edgeTypes: [...new Set(drawable.map(e => e.type))].sort(),
     };
-  }, [result]);
+  }, [result, g, rankdir, drawable, highlighted]);
 
   const graphEmpty = result.graph.nodes.length === 0;
   const order = result.execution_order;
@@ -177,6 +210,8 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
             minZoom={0.1}
             nodesConnectable={false}
             onInit={setFlow}
+            onNodeClick={(_, node) => onSelectNode(node.id)}
+            onPaneClick={() => onSelectNode(null)}
           >
             <Background />
             <Controls showInteractive={false}>
@@ -200,7 +235,31 @@ export default function DependencyGraph({ result }: { result: AnalysisResult }) 
       )}
 
       <div className="mt-2 space-y-1 text-xs text-slate-600">
-        <p>Arrows point from a prerequisite to the item that depends on it.</p>
+        <p>
+          Arrows point from a prerequisite to the item that depends on it. Click a box for its
+          details.
+        </p>
+        {edgeTypes.length > 0 && (
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Edges:</span>
+            {edgeTypes.map(type => (
+              <span key={type} className="inline-flex items-center gap-1">
+                <svg width="22" height="6" aria-hidden="true">
+                  <line
+                    x1="0"
+                    y1="3"
+                    x2="22"
+                    y2="3"
+                    stroke={EDGE}
+                    strokeWidth="1.5"
+                    strokeDasharray={EDGE_DASH[type]}
+                  />
+                </svg>
+                {EDGE_TYPE_LABELS[type] ?? type}
+              </span>
+            ))}
+          </p>
+        )}
         {severitiesShown.size > 0 && (
           <p>
             Box colour shows the most severe issue linked to it:

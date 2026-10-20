@@ -318,3 +318,39 @@ def test_valid_healthcheck_and_onbuild_are_accepted(adapter, line):
         f"FROM alpine:3.20\n{line}\n", SourceFormat.dockerfile, adapter=adapter
     )
     assert parser_diagnostics(result) == []
+
+
+def test_stage_instructions_keep_order_and_source_lines(adapter):
+    source = (
+        "# build stage\n"
+        "FROM node:22 AS build\n"
+        "WORKDIR /app\n"
+        "RUN npm ci \\\n"
+        "  && npm run build\n"
+        "\n"
+        "FROM nginx:1.27\n"
+        "COPY --from=build /app/dist /usr/share/nginx/html\n"
+    )
+    result = adapter.parse(source, None)
+    build, web = result.ir.nodes
+    assert build.metadata["instructions"] == [
+        {
+            "instruction": "FROM",
+            "text": "FROM node:22 AS build",
+            "start_line": 2,
+            "end_line": 2,
+        },
+        {
+            "instruction": "WORKDIR",
+            "text": "WORKDIR /app",
+            "start_line": 3,
+            "end_line": 3,
+        },
+        {
+            "instruction": "RUN",
+            "text": "RUN npm ci \\\n  && npm run build",
+            "start_line": 4,
+            "end_line": 5,
+        },
+    ]
+    assert [i["instruction"] for i in web.metadata["instructions"]] == ["FROM", "COPY"]

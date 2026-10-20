@@ -10,8 +10,20 @@
         "file": "Dockerfile",
         "start_line": 6,
         "start_column": 1,
-        "end_line": 8,
-        "end_column": 13
+        "end_line": 6,
+        "end_column": null
+      }
+    },
+    {
+      "code": "SECURITY_RULE_VIOLATION",
+      "severity": "warning",
+      "message": "[DF_RUNS_AS_ROOT] The final stage has no USER instruction, so the container runs as root unless the base image sets another user. Add a non-root USER before CMD.",
+      "source_location": {
+        "file": "Dockerfile",
+        "start_line": 10,
+        "start_column": 1,
+        "end_line": 10,
+        "end_column": null
       }
     }
   ],
@@ -25,34 +37,38 @@
           "file": "Dockerfile",
           "start_line": 1,
           "start_column": 1,
-          "end_line": 4,
-          "end_column": 11
+          "end_line": 1,
+          "end_column": null
         },
         "metadata": {
           "stage_index": 0,
+          "base_image": "node:20-alpine",
           "is_final_stage": false,
           "alias": "base",
-          "base": "node:20-alpine",
           "instructions": [
             {
-              "line": 1,
               "instruction": "FROM",
-              "text": "FROM node:20-alpine AS base"
+              "text": "FROM node:20-alpine AS base",
+              "start_line": 1,
+              "end_line": 1
             },
             {
-              "line": 2,
               "instruction": "WORKDIR",
-              "text": "WORKDIR /app"
+              "text": "WORKDIR /app",
+              "start_line": 2,
+              "end_line": 2
             },
             {
-              "line": 3,
               "instruction": "COPY",
-              "text": "COPY package*.json ./"
+              "text": "COPY package*.json ./",
+              "start_line": 3,
+              "end_line": 3
             },
             {
-              "line": 4,
               "instruction": "RUN",
-              "text": "RUN npm ci"
+              "text": "RUN npm ci",
+              "start_line": 4,
+              "end_line": 4
             }
           ]
         }
@@ -65,29 +81,32 @@
           "file": "Dockerfile",
           "start_line": 6,
           "start_column": 1,
-          "end_line": 8,
-          "end_column": 13
+          "end_line": 6,
+          "end_column": null
         },
         "metadata": {
           "stage_index": 1,
+          "base_image": "base",
           "is_final_stage": false,
           "alias": "test",
-          "base": "base",
           "instructions": [
             {
-              "line": 6,
               "instruction": "FROM",
-              "text": "FROM base AS test"
+              "text": "FROM base AS test",
+              "start_line": 6,
+              "end_line": 6
             },
             {
-              "line": 7,
               "instruction": "COPY",
-              "text": "COPY . ."
+              "text": "COPY . .",
+              "start_line": 7,
+              "end_line": 7
             },
             {
-              "line": 8,
               "instruction": "RUN",
-              "text": "RUN npm test"
+              "text": "RUN npm test",
+              "start_line": 8,
+              "end_line": 8
             }
           ]
         }
@@ -100,29 +119,32 @@
           "file": "Dockerfile",
           "start_line": 10,
           "start_column": 1,
-          "end_line": 12,
-          "end_column": 18
+          "end_line": 10,
+          "end_column": null
         },
         "metadata": {
           "stage_index": 2,
+          "base_image": "base",
           "is_final_stage": true,
           "alias": "build",
-          "base": "base",
           "instructions": [
             {
-              "line": 10,
               "instruction": "FROM",
-              "text": "FROM base AS build"
+              "text": "FROM base AS build",
+              "start_line": 10,
+              "end_line": 10
             },
             {
-              "line": 11,
               "instruction": "COPY",
-              "text": "COPY . ."
+              "text": "COPY . .",
+              "start_line": 11,
+              "end_line": 11
             },
             {
-              "line": 12,
               "instruction": "RUN",
-              "text": "RUN npm run build"
+              "text": "RUN npm run build",
+              "start_line": 12,
+              "end_line": 12
             }
           ]
         }
@@ -137,9 +159,9 @@
         "source_location": {
           "file": "Dockerfile",
           "start_line": 6,
-          "start_column": 6,
+          "start_column": 1,
           "end_line": 6,
-          "end_column": 10
+          "end_column": null
         },
         "metadata": {}
       },
@@ -151,9 +173,9 @@
         "source_location": {
           "file": "Dockerfile",
           "start_line": 10,
-          "start_column": 6,
+          "start_column": 1,
           "end_line": 10,
-          "end_column": 10
+          "end_column": null
         },
         "metadata": {}
       }
@@ -174,11 +196,41 @@
         "file": "Dockerfile",
         "start_line": 6,
         "start_column": 1,
-        "end_line": 8,
-        "end_column": 13
+        "end_line": 6,
+        "end_column": null
       },
       "related_node_ids": [
         "docker:stage:1"
+      ]
+    },
+    {
+      "id": "DF_RUNS_AS_ROOT:1",
+      "rule_id": "DF_RUNS_AS_ROOT",
+      "title": "Run the container as a non-root user",
+      "explanation": "A process running as root inside the container has more power if it is compromised. Create or reuse an unprivileged user and switch to it after the steps that need root.",
+      "diagnostic_code": "SECURITY_RULE_VIOLATION",
+      "diagnostic_index": 1,
+      "fix_kind": "judgment",
+      "proposed_change": {
+        "description": "Add a USER instruction before CMD/ENTRYPOINT (many base images already provide one, e.g. 'node' in node images).",
+        "preview": "+ RUN useradd --create-home --uid 10001 app\n+ USER app",
+        "source_location": {
+          "file": "Dockerfile",
+          "start_line": 10,
+          "start_column": 1,
+          "end_line": 10,
+          "end_column": null
+        }
+      },
+      "source_location": {
+        "file": "Dockerfile",
+        "start_line": 10,
+        "start_column": 1,
+        "end_line": 10,
+        "end_column": null
+      },
+      "related_node_ids": [
+        "docker:stage:2"
       ]
     }
   ]

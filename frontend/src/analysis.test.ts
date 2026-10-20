@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   cycleHighlights,
+  diagnosticNodeIds,
   edgeKey,
   executionOrderNote,
   formatLocation,
   getStatus,
   isPartial,
   labelFor,
+  metadataEntries,
+  nodeDiagnostics,
   nodeSeverities,
   selectionRange,
+  stageInstructions,
 } from './analysis';
 import type { AnalysisResult, SourceLocation } from './types';
 import terraformMock from './mocks/terraform.json';
@@ -134,5 +138,34 @@ describe('source locations', () => {
     // The mock was generated from this exact sample file.
     const range = selectionRange(terraformSample, terraform.diagnostics[0].source_location);
     expect(terraformSample.slice(range!.start, range!.end)).toBe('aws_vpc.mian.id');
+  });
+});
+
+describe('node details and diagnostic links', () => {
+  it('links diagnostics and nodes through recommendations', () => {
+    const index = terraform.diagnostics.findIndex(d => d.code === 'UNRESOLVED_DEPENDENCY');
+    expect(diagnosticNodeIds(terraform, index)).toEqual(['tf:resource:aws_subnet.app']);
+    expect(nodeDiagnostics(terraform, 'tf:resource:aws_subnet.app').map(d => d.index)).toEqual([
+      index,
+    ]);
+    expect(nodeDiagnostics(terraform, 'tf:resource:aws_vpc.main')).toEqual([]);
+  });
+
+  it('reads Dockerfile stage instructions with their lines', () => {
+    const base = dockerfile.graph.nodes.find(n => n.id === 'docker:stage:0')!;
+    expect(stageInstructions(base).map(i => [i.instruction, i.start_line])).toEqual([
+      ['FROM', 1],
+      ['WORKDIR', 2],
+      ['COPY', 3],
+      ['RUN', 4],
+    ]);
+    expect(stageInstructions(yaml.graph.nodes[0])).toEqual([]);
+  });
+
+  it('lists metadata without the instructions', () => {
+    const base = dockerfile.graph.nodes.find(n => n.id === 'docker:stage:0')!;
+    const keys = metadataEntries(base).map(([key]) => key);
+    expect(keys).toContain('base_image');
+    expect(keys).not.toContain('instructions');
   });
 });

@@ -1,8 +1,16 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import type { AnalysisResult, Diagnostic, SourceFormat } from './types';
 import { analyze } from './api';
-import { formatLocation, getStatus, isPartial, selectionRange, type StatusTone } from './analysis';
+import {
+  diagnosticNodeIds,
+  formatLocation,
+  getStatus,
+  isPartial,
+  selectionRange,
+  type StatusTone,
+} from './analysis';
 import DependencyGraph from './components/DependencyGraph';
+import NodeDetails from './components/NodeDetails';
 import terraformSample from './samples/main.tf?raw';
 import dockerfileSample from './samples/Dockerfile?raw';
 import yamlSample from './samples/ci.yml?raw';
@@ -57,6 +65,9 @@ export default function App() {
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
   const [uploadNote, setUploadNote] = useState('');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
+  const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,6 +81,7 @@ export default function App() {
     setLoading(true);
     setError('');
     setResult(null);
+    selectNode(null);
 
     try {
       const data = await analyze(language, code, fileName || undefined);
@@ -102,6 +114,23 @@ export default function App() {
     e.target.value = '';
   }
 
+  function selectNode(id: string | null) {
+    setSelectedNodeId(id);
+    setHighlighted(new Set(id ? [id] : []));
+    setActiveDiagnostic(null);
+  }
+
+  // A diagnostic highlights its nodes (spec 8.2 step 6), opens the first one's
+  // details and moves the editor to its location.
+  function selectDiagnostic(index: number) {
+    if (!result) return;
+    const ids = diagnosticNodeIds(result, index);
+    setActiveDiagnostic(index);
+    setHighlighted(new Set(ids));
+    setSelectedNodeId(ids[0] ?? null);
+    jumpTo(result.diagnostics[index]?.source_location ?? null);
+  }
+
   function jumpTo(location: Diagnostic['source_location']) {
     const el = textareaRef.current;
     const range = selectionRange(code, location);
@@ -112,6 +141,7 @@ export default function App() {
   }
 
   const status = result ? getStatus(result) : null;
+  const selectedNode = result?.graph.nodes.find(n => n.id === selectedNodeId) ?? null;
   const partial = result ? isPartial(result) : false;
 
   return (
@@ -240,7 +270,21 @@ export default function App() {
                 </div>
               )}
 
-              <DependencyGraph result={result} />
+              <DependencyGraph
+                result={result}
+                highlighted={highlighted}
+                onSelectNode={selectNode}
+              />
+
+              {selectedNode && (
+                <NodeDetails
+                  result={result}
+                  node={selectedNode}
+                  onJump={jumpTo}
+                  onSelectDiagnostic={selectDiagnostic}
+                  onClose={() => selectNode(null)}
+                />
+              )}
 
               <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
               {result.diagnostics.length === 0 && (
@@ -250,19 +294,27 @@ export default function App() {
                 {result.diagnostics.map((d, i) => {
                   const s = SEVERITY_STYLES[d.severity] ?? SEVERITY_STYLES.info;
                   const where = formatLocation(d.source_location);
+                  const linked = diagnosticNodeIds(result, i).length > 0;
+                  const clickable = where !== null || linked;
                   return (
                     <li
                       key={i}
-                      onClick={where ? () => jumpTo(d.source_location) : undefined}
-                      className={`rounded-md border p-3 text-sm ${s.card} ${where ? 'cursor-pointer' : ''}`}
+                      onClick={clickable ? () => selectDiagnostic(i) : undefined}
+                      className={`rounded-md border p-3 text-sm ${s.card} ${clickable ? 'cursor-pointer' : ''} ${activeDiagnostic === i ? 'ring-2 ring-indigo-400' : ''}`}
                     >
                       <div className={`font-semibold ${s.title}`}>
                         {d.severity.toUpperCase()} · {d.code}
                         {where && ` · ${where}`}
                       </div>
                       <div className="mt-1 text-slate-700">{d.message}</div>
-                      {where && (
-                        <div className="mt-1 text-xs text-slate-500">Click to jump to this location</div>
+                      {clickable && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {where && linked
+                            ? 'Click to show it in the editor and the graph'
+                            : where
+                              ? 'Click to jump to this location'
+                              : 'Click to show it in the graph'}
+                        </div>
                       )}
                     </li>
                   );

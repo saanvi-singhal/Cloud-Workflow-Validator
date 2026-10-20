@@ -2,7 +2,14 @@
 // Graph meaning (cycles, validity, order) always comes from the backend
 // response; nothing here re-analyses the graph (PROJECT_SPEC 8.3, 12.3).
 
-import type { AnalysisResult, GraphEdge, Severity, SourceLocation } from './types';
+import type {
+  AnalysisResult,
+  Diagnostic,
+  GraphEdge,
+  GraphNode,
+  Severity,
+  SourceLocation,
+} from './types';
 
 const RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 
@@ -76,6 +83,73 @@ export function cycleHighlights(result: AnalysisResult) {
   }
   return { nodes, edges, selfLoops };
 }
+
+/**
+ * Node ids linked to one diagnostic. Diagnostics carry no node ids (spec 6.1);
+ * the link is the recommendations that point at the diagnostic by index.
+ */
+export function diagnosticNodeIds(result: AnalysisResult, index: number): string[] {
+  const ids = new Set<string>();
+  for (const rec of result.recommendations) {
+    if (rec.diagnostic_index === index) rec.related_node_ids.forEach(id => ids.add(id));
+  }
+  return [...ids];
+}
+
+/** Diagnostics linked to a node, with their index in `diagnostics`. */
+export function nodeDiagnostics(
+  result: AnalysisResult,
+  nodeId: string,
+): { index: number; diagnostic: Diagnostic }[] {
+  const indexes = new Set<number>();
+  for (const rec of result.recommendations) {
+    if (rec.related_node_ids.includes(nodeId)) indexes.add(rec.diagnostic_index);
+  }
+  return [...indexes]
+    .sort((a, b) => a - b)
+    .filter(index => result.diagnostics[index] !== undefined)
+    .map(index => ({ index, diagnostic: result.diagnostics[index] }));
+}
+
+export interface StageInstruction {
+  instruction: string;
+  text: string;
+  start_line: number;
+  end_line: number;
+}
+
+/** A Dockerfile stage's ordered instructions from its metadata (spec 4.2). */
+export function stageInstructions(node: GraphNode): StageInstruction[] {
+  const raw = node.metadata.instructions;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is StageInstruction =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof item.instruction === 'string' &&
+      typeof item.text === 'string' &&
+      typeof item.start_line === 'number',
+  );
+}
+
+/** Metadata to list in node details: everything except instructions, as text. */
+export function metadataEntries(node: GraphNode): [string, string][] {
+  return Object.entries(node.metadata)
+    .filter(([key, value]) => key !== 'instructions' && value !== null && value !== '')
+    .map(([key, value]) => [
+      key,
+      typeof value === 'object' ? JSON.stringify(value) : String(value),
+    ]);
+}
+
+/** Readable names for the edge types (spec 3.5). */
+export const EDGE_TYPE_LABELS: Record<string, string> = {
+  workflow_dependency: 'needs',
+  terraform_reference: 'reference',
+  terraform_explicit_dependency: 'depends_on',
+  docker_stage_base: 'stage dependency (FROM / COPY --from)',
+  docker_instruction_order: 'instruction order',
+};
 
 /** Human-readable label for a node id (falls back to the id). */
 export function labelFor(result: AnalysisResult, id: string): string {

@@ -11,14 +11,13 @@
         "source_location": {
           "file": "ci.yml",
           "start_line": 5,
-          "start_column": 1,
-          "end_line": 8,
-          "end_column": 27
+          "start_column": 3,
+          "end_line": null,
+          "end_column": null
         },
         "metadata": {
-          "job_id": "build",
-          "runs_on": "ubuntu-latest",
-          "needs": []
+          "job_key": "build",
+          "runs_on": "ubuntu-latest"
         }
       },
       {
@@ -28,16 +27,13 @@
         "source_location": {
           "file": "ci.yml",
           "start_line": 14,
-          "start_column": 1,
-          "end_line": 18,
-          "end_column": 25
+          "start_column": 3,
+          "end_line": null,
+          "end_column": null
         },
         "metadata": {
-          "job_id": "deploy",
-          "runs_on": "ubuntu-latest",
-          "needs": [
-            "test"
-          ]
+          "job_key": "deploy",
+          "runs_on": "ubuntu-latest"
         }
       },
       {
@@ -47,16 +43,13 @@
         "source_location": {
           "file": "ci.yml",
           "start_line": 9,
-          "start_column": 1,
-          "end_line": 13,
-          "end_column": 22
+          "start_column": 3,
+          "end_line": null,
+          "end_column": null
         },
         "metadata": {
-          "job_id": "test",
-          "runs_on": "ubuntu-latest",
-          "needs": [
-            "build"
-          ]
+          "job_key": "test",
+          "runs_on": "ubuntu-latest"
         }
       }
     ],

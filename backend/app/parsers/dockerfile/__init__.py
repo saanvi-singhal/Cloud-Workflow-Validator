@@ -398,17 +398,26 @@ class _DockerfileExtractor:
 
             stage_idx += 1
 
-        # Collect instructions per stage for metadata
-        stage_instructions: list[list[str]] = [[] for _ in range(len(self.stages))]
+        # Ordered instructions per stage, with 1-based source lines (spec 4.2).
+        # Comments are not instructions and are left out.
+        stage_instructions: list[list[dict[str, Any]]] = [[] for _ in self.stages]
         curr_idx = -1
         for entry in structure:
             instruction = entry.get("instruction", "").upper()
+            if instruction == "COMMENT":
+                continue
             if instruction == "FROM":
                 curr_idx += 1
             if 0 <= curr_idx < len(stage_instructions):
-                content = entry.get("content", "").strip()
-                if content:
-                    stage_instructions[curr_idx].append(content)
+                start = entry.get("startline", 0)
+                stage_instructions[curr_idx].append(
+                    {
+                        "instruction": instruction,
+                        "text": entry.get("content", "").strip(),
+                        "start_line": start + 1,
+                        "end_line": entry.get("endline", start) + 1,
+                    }
+                )
 
         for i, node in enumerate(self.nodes):
             updated_meta = dict(node.metadata)
