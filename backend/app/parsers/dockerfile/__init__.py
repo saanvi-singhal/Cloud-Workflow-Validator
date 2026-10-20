@@ -8,6 +8,7 @@ Constructs stage nodes and dependencies between stages:
 
 from __future__ import annotations
 
+import difflib
 import io
 import re
 from typing import Any
@@ -254,6 +255,59 @@ class _DockerfileExtractor:
             )
         return result
 
+    def _resolve_stage(
+        self,
+        name: str,
+        stage: _StageInfo,
+        loc: SourceLocation | None,
+        where: str,
+    ) -> _StageInfo | None:
+        """The earlier stage ``name`` refers to, or None if it is an image.
+
+        Warns when the name is probably a mistake: it matches a stage defined
+        later (Docker then pulls an image of that name), or it is a near-miss
+        of an earlier stage name.
+        """
+        wanted = name.lower()
+        earlier = {
+            s.alias.lower(): s for s in reversed(self.stages[: stage.index]) if s.alias
+        }
+        if wanted in earlier:
+            return earlier[wanted]
+        if "/" in name or ":" in name or "@" in name or "$" in name:
+            return None  # clearly an image reference (or a build arg)
+
+        later = [
+            s
+            for s in self.stages[stage.index :]
+            if s.alias and s.alias.lower() == wanted
+        ]
+        close = difflib.get_close_matches(wanted, list(earlier), n=1, cutoff=0.8)
+        if later:
+            message = (
+                f"{where} {name}: stage '{later[0].alias}' is defined later in the "
+                "file, so Docker treats this as an image name, not that stage. "
+                "Move the stage before this point."
+            )
+        elif close:
+            message = (
+                f"{where} {name}: there is no earlier stage '{name}', so Docker "
+                f"will try to pull an image of that name. Did you mean '{close[0]}'?"
+            )
+        else:
+            return None
+        self.findings.append(
+            make_finding(
+                DiagnosticCode.UNRESOLVED_DEPENDENCY,
+                Severity.warning,
+                message,
+                loc,
+                node_ids=(stage.node_id,),
+                details={"address": name, "known_addresses": sorted(earlier)},
+            )
+        )
+        return None
+
     def extract(self, structure: list[dict[str, Any]]) -> IRGraph:
         self._check_instructions(structure)
 
@@ -361,13 +415,14 @@ class _DockerfileExtractor:
             updated_meta["instructions"] = stage_instructions[i]
             self.nodes[i] = node.model_copy(update={"metadata": updated_meta})
 
-        # Pass 2: Connect dependencies
-        # 2a: FROM <stage_name> referencing previous stage
+        # Pass 2: Connect dependencies. Docker resolves a name in FROM or
+        # COPY --from to a stage only if that stage is defined *earlier*;
+        # anything else is an image name.
+        # 2a: FROM <earlier stage>
         for stage in self.stages:
-            base_lower = stage.base_image.lower()
-            if base_lower in self.alias_to_stage:
-                dep_stage = self.alias_to_stage[base_lower]
-                loc = _make_loc(stage.start_line, stage.end_line, self.filename)
+            loc = _make_loc(stage.start_line, stage.end_line, self.filename)
+            dep_stage = self._resolve_stage(stage.base_image, stage, loc, "FROM")
+            if dep_stage is not None:
                 self.edges.append(
                     Edge(
                         source=dep_stage.node_id,
@@ -378,86 +433,55 @@ class _DockerfileExtractor:
                     )
                 )
 
-        # 2b: COPY --from=<stage_or_index>
+        # 2b: COPY --from=<earlier stage, index or image>
         curr_stage_idx = -1
         for entry in structure:
             instruction = entry.get("instruction", "").upper()
             if instruction == "FROM":
                 curr_stage_idx += 1
                 continue
-
+            if instruction != "COPY":
+                continue
             if curr_stage_idx < 0 or curr_stage_idx >= len(self.stages):
                 continue
 
             current_stage = self.stages[curr_stage_idx]
-            val = entry.get("value", "")
-            start_line = entry.get("startline")
-            end_line = entry.get("endline")
-            loc = _make_loc(start_line, end_line, self.filename)
-
-            if instruction == "COPY":
-                from_matches = _COPY_FROM_PATTERN.findall(val)
-                for from_target in from_matches:
-                    from_clean = from_target.strip("\"'")
-                    dep_stage: _StageInfo | None = None
-
-                    # Check numeric index
-                    if from_clean.isdigit():
-                        idx = int(from_clean)
-                        if idx in self.index_to_stage and idx < current_stage.index:
-                            dep_stage = self.index_to_stage[idx]
-                        else:
-                            self.findings.append(
-                                make_finding(
-                                    DiagnosticCode.UNRESOLVED_DEPENDENCY,
-                                    Severity.error,
-                                    f"COPY --from references invalid index "
-                                    f"'{from_clean}'.",
-                                    loc,
-                                    node_ids=(current_stage.node_id,),
-                                    details={"from": from_clean},
-                                )
-                            )
-                            continue
-                    else:
-                        target_lower = from_clean.lower()
-                        if target_lower in self.alias_to_stage:
-                            dep_stage = self.alias_to_stage[target_lower]
-                        else:
-                            # External image reference (e.g. image:tag) is allowed
-                            if "/" in from_clean or ":" in from_clean:
-                                continue
-                            else:
-                                # Unresolved stage reference!
-                                # DO NOT create an edge to a non-existent node.
-                                known = sorted(self.alias_to_stage.keys())
-                                self.findings.append(
-                                    make_finding(
-                                        DiagnosticCode.UNRESOLVED_DEPENDENCY,
-                                        Severity.error,
-                                        f"COPY --from references unknown stage "
-                                        f"'{from_clean}'.",
-                                        loc,
-                                        node_ids=(current_stage.node_id,),
-                                        details={
-                                            "from": from_clean,
-                                            "address": from_clean,
-                                            "known_addresses": known,
-                                        },
-                                    )
-                                )
-                                continue
-
-                    if dep_stage is not None:
-                        self.edges.append(
-                            Edge(
-                                source=dep_stage.node_id,
-                                target=current_stage.node_id,
-                                type=EdgeType.docker_stage_base,
-                                label=f"COPY --from={from_clean}",
-                                source_location=loc,
+            loc = _make_loc(entry.get("startline"), entry.get("endline"), self.filename)
+            for from_target in _COPY_FROM_PATTERN.findall(entry.get("value", "")):
+                from_clean = from_target.strip("\"'")
+                dep_stage: _StageInfo | None = None
+                if from_clean.isdigit():
+                    idx = int(from_clean)
+                    if idx < current_stage.index:
+                        dep_stage = self.index_to_stage.get(idx)
+                    if dep_stage is None:
+                        self.findings.append(
+                            make_finding(
+                                DiagnosticCode.UNRESOLVED_DEPENDENCY,
+                                Severity.error,
+                                f"COPY --from={from_clean} does not name an earlier "
+                                f"stage (this is stage {current_stage.index}; "
+                                "stages are numbered from 0).",
+                                loc,
+                                node_ids=(current_stage.node_id,),
+                                details={"from": from_clean},
                             )
                         )
+                        continue
+                else:
+                    dep_stage = self._resolve_stage(
+                        from_clean, current_stage, loc, "COPY --from"
+                    )
+                if dep_stage is not None:
+                    self.edges.append(
+                        Edge(
+                            source=dep_stage.node_id,
+                            target=current_stage.node_id,
+                            type=EdgeType.docker_stage_base,
+                            label=f"COPY --from={from_clean}",
+                            source_location=loc,
+                        )
+                    )
 
         return IRGraph(
             format=SourceFormat.dockerfile,

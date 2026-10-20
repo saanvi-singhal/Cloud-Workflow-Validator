@@ -556,3 +556,27 @@ def test_secrets_inherit_is_accepted(adapter):
         "    secrets: inherit\n"
     )
     assert compile_source(source, SourceFormat.yaml, adapter=adapter).diagnostics == []
+
+
+@pytest.mark.parametrize(
+    ("needs", "line", "column"),
+    [
+        ("[a, zz]", 7, 16),
+        ("\n      - a\n      - zz", 9, 9),
+        ("zz", 7, 12),
+        ('["a", "zz"]', 7, 19),
+    ],
+)
+def test_unresolved_needs_points_at_the_missing_name(adapter, needs, line, column):
+    source = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    steps: [{run: echo}]\n  b:\n"
+        f"    needs: {needs}\n    runs-on: x\n    steps: [{{run: echo}}]\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    loc = diagnostic.source_location
+    assert (loc.start_line, loc.start_column, loc.end_column) == (
+        line,
+        column,
+        column + 2,
+    )

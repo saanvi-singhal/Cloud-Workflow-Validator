@@ -77,7 +77,7 @@ def test_multi_stage_dockerfile_and_copy_from(adapter):
 
 
 def test_unresolved_copy_from_stage(adapter):
-    """Unknown COPY --from stage emits UNRESOLVED_DEPENDENCY without an edge."""
+    """A near-miss of an earlier stage name is a warning and creates no edge."""
     source = (FIXTURES / "unresolved_copy_from.dockerfile").read_text()
     result = compile_source(
         source,
@@ -86,11 +86,59 @@ def test_unresolved_copy_from_stage(adapter):
         adapter=adapter,
     )
 
-    assert result.valid is False
     assert len(result.graph.edges) == 0
+    [diagnostic] = [
+        d for d in result.diagnostics if d.code == DiagnosticCode.UNRESOLVED_DEPENDENCY
+    ]
+    assert diagnostic.severity.value == "warning"
+    assert diagnostic.message.endswith("Did you mean 'builder'?")
+    assert diagnostic.source_location.start_line == 5
 
-    codes = [d.code for d in result.diagnostics]
-    assert DiagnosticCode.UNRESOLVED_DEPENDENCY in codes
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "COPY --from=busybox /bin/sh /sh",
+        "COPY --from=alpine:3.20 /x /x",
+        "COPY --from=ghcr.io/org/tool@sha256:abc /t /t",
+        "COPY --from=${IMG} /t /t",
+    ],
+)
+def test_copy_from_an_image_is_not_an_error(adapter, line):
+    result = compile_source(
+        f"FROM node:22 AS build\n{line}\n", SourceFormat.dockerfile, adapter=adapter
+    )
+    assert parser_diagnostics(result) == []
+    assert result.graph.edges == []
+
+
+def test_stage_defined_later_is_an_image_not_an_edge(adapter):
+    source = (
+        "FROM later AS first\nCOPY --from=later2 /a /a\n"
+        "FROM alpine:3.20 AS later\nFROM alpine:3.20 AS later2\n"
+    )
+    result = compile_source(source, SourceFormat.dockerfile, adapter=adapter)
+    # Docker resolves names only to earlier stages: no backwards edges.
+    assert result.graph.edges == []
+    warnings = [
+        (d.source_location.start_line, d.message.split(":")[0])
+        for d in result.diagnostics
+        if d.code == DiagnosticCode.UNRESOLVED_DEPENDENCY
+    ]
+    assert warnings == [(1, "FROM later"), (2, "COPY --from later2")]
+
+
+def test_copy_from_index_must_be_earlier(adapter):
+    source = (
+        "FROM alpine:3.20\nCOPY --from=0 /a /a\nFROM alpine:3.20\nCOPY --from=0 /a /a\n"
+    )
+    result = compile_source(source, SourceFormat.dockerfile, adapter=adapter)
+    [error] = parser_diagnostics(result)
+    assert error.source_location.start_line == 2
+    assert error.message.startswith("COPY --from=0 does not name an earlier stage")
+    assert [(e.source, e.target) for e in result.graph.edges] == [
+        ("docker:stage:0", "docker:stage:1")
+    ]
 
 
 def test_unreachable_intermediate_stage(adapter):

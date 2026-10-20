@@ -309,10 +309,20 @@ class _YamlExtractor:
             needs_raw = job_val["needs"]
             needs_loc = _extract_location(job_val, "needs", self.filename)
 
+            # (job name, location of that name) for each entry.
             if isinstance(needs_raw, (str, int)):
-                needs_list = [str(needs_raw)]
+                position = _value_position(job_val, "needs")
+                needs_list = [
+                    (str(needs_raw), self._name_location(position, str(needs_raw)))
+                ]
             elif isinstance(needs_raw, list):
-                needs_list = [str(item) for item in needs_raw]
+                needs_list = [
+                    (
+                        str(item),
+                        self._name_location(_item_position(needs_raw, i), str(item)),
+                    )
+                    for i, item in enumerate(needs_raw)
+                ]
             else:
                 self.findings.append(
                     make_finding(
@@ -327,7 +337,7 @@ class _YamlExtractor:
                 self.complete = False
                 continue
 
-            for needed_job in needs_list:
+            for needed_job, reference_loc in needs_list:
                 source_id = self.job_to_id.get(needed_job)
                 if source_id is None:
                     # CRUCIAL RULE: Do NOT create an edge to a non-existent node.
@@ -339,7 +349,7 @@ class _YamlExtractor:
                             Severity.error,
                             f"Job '{job_key_str}' has unresolved dependency "
                             f"'{needed_job}'.",
-                            needs_loc,
+                            reference_loc or needs_loc,
                             node_ids=(target_id,),
                             details={
                                 "job": job_key_str,
@@ -355,7 +365,7 @@ class _YamlExtractor:
                             target=target_id,
                             type=EdgeType.workflow_dependency,
                             label="needs",
-                            source_location=needs_loc,
+                            source_location=reference_loc or needs_loc,
                         )
                     )
 
@@ -387,6 +397,18 @@ class _YamlExtractor:
                 node_ids=(node_id,) if node_id else (),
             )
         )
+
+    def _name_location(
+        self, position: tuple[int, int] | None, name: str
+    ) -> SourceLocation | None:
+        """Span of ``name`` at ``position``, skipping an opening quote."""
+        if position is None:
+            return None
+        line, col = position
+        text = self.lines[line] if line < len(self.lines) else ""
+        if col < len(text) and text[col] in "\"'":
+            col += 1
+        return _position((line, col), self.filename, len(name))
 
     def _check_unknown_keys(
         self,

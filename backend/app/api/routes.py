@@ -63,7 +63,9 @@ async def validate_endpoint(request: ValidationRequest) -> dict[str, Any]:
     source_bytes = len(request.source.encode("utf-8"))
     if source_bytes > MAX_SOURCE_BYTES:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            # 413 Content Too Large; the constant's name differs across
+            # Starlette versions, so use the number.
+            status_code=413,
             detail={
                 "code": "SOURCE_TOO_LARGE",
                 "message": (
