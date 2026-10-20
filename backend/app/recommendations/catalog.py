@@ -506,6 +506,28 @@ def _gha_number_loses_zero(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _gha_script_injection(finding: Finding, index: int) -> Recommendation:
+    expression = finding.details.get("expression", "${{ ... }}")
+    field = finding.details.get("field", "")
+    name = (field.rsplit(".", 1)[-1] or "VALUE").upper()
+    return _make(
+        "GHA_SCRIPT_INJECTION",
+        finding,
+        index,
+        "Pass untrusted input through an environment variable",
+        "An expression in a script is replaced by its text before the script "
+        "runs, so a crafted issue title or branch name becomes shell code. An "
+        "environment variable is passed as data and never parsed as code.",
+        ProposedChange(
+            description=f"Set {name} from the expression in the step's env and "
+            f'use "${name}" (quoted) in the script.',
+            preview=f"+ env:\n+   {name}: {expression}\n"
+            f'- ... {expression} ...\n+ ... "${name}" ...',
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
 SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
     "TF_S3_PUBLIC_ACL": _security_s3_public_acl,
     "TF_SG_OPEN_INGRESS": _security_open_ingress,
@@ -521,6 +543,7 @@ SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = 
     "DF_CONSECUTIVE_RUN": _df_consecutive_run,
     "DF_APT_UNPINNED_PACKAGES": _df_apt_unpinned_packages,
     "GHA_NUMBER_LOSES_ZERO": _gha_number_loses_zero,
+    "GHA_SCRIPT_INJECTION": _gha_script_injection,
 }
 
 

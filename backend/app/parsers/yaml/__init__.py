@@ -32,6 +32,8 @@ from app.rules.github_actions_rules import run_github_actions_rules
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.yaml]
 
 _DUPLICATE_KEY = re.compile(r'duplicate key "(.*?)"')
+# `secrets.X` or `secrets['X']` used as a context in an expression.
+_SECRETS_CONTEXT = re.compile(r"(?<![\w.'\"])secrets\s*[.\[]")
 
 # Keys GitHub allows; any other key makes it reject the workflow
 # (https://docs.github.com/actions/reference/workflow-syntax-for-github-actions).
@@ -184,8 +186,9 @@ def _extract_location(
 class _YamlExtractor:
     """Extracts nodes and edges from parsed YAML structure."""
 
-    def __init__(self, filename: str | None) -> None:
+    def __init__(self, filename: str | None, source: str = "") -> None:
         self.filename = filename
+        self.lines = source.split("\n")
         self.findings: list[Finding] = []
         self.complete = True
         self.nodes: list[Node] = []
@@ -396,6 +399,29 @@ class _YamlExtractor:
                     node_id,
                 )
 
+    def _check_if_secrets(self, mapping: Any, where: str, node_id: str) -> None:
+        """GitHub rejects ``if:`` conditions that use the ``secrets`` context."""
+        condition = mapping.get("if")
+        if not isinstance(condition, str) or not _SECRETS_CONTEXT.search(condition):
+            return
+        position = _value_position(mapping, "if")
+        location = _position(position, self.filename)
+        if position is not None and self.lines:
+            line, col = position
+            text = self.lines[line] if line < len(self.lines) else ""
+            found = _SECRETS_CONTEXT.search(text, col)
+            if found:
+                location = _position(
+                    (line, found.start()), self.filename, len("secrets")
+                )
+        self._schema_error(
+            f"The 'if' of {where} uses the secrets context, which is not "
+            "available in conditions, so GitHub will reject this workflow. Map "
+            "the secret to an env variable and test env.NAME instead.",
+            location,
+            node_id,
+        )
+
     def _check_triggers(self, data: Any) -> None:
         """`on` must exist and name only real events."""
         if "on" not in data:
@@ -437,6 +463,7 @@ class _YamlExtractor:
         """A job needs `runs-on`, and each step exactly one of `uses` or `run`."""
         job_position = _key_position(jobs, job_key)
         self._check_unknown_keys(job, JOB_KEYS, f"a key of job '{job_key}'", node_id)
+        self._check_if_secrets(job, f"job '{job_key}'", node_id)
         # A job that calls a reusable workflow (`uses:` on the job) has no
         # runner and no steps of its own.
         if "uses" in job:
@@ -482,6 +509,7 @@ class _YamlExtractor:
                     node_id,
                 )
             if isinstance(step, dict):
+                self._check_if_secrets(step, f"{label[0].lower()}{label[1:]}", node_id)
                 self._check_unknown_keys(
                     step, STEP_KEYS, f"a key of {label[0].lower()}{label[1:]}", node_id
                 )
@@ -581,7 +609,7 @@ class YamlAdapter:
             )
             return ParseResult(ir=None, findings=[finding])
 
-        extractor = _YamlExtractor(filename)
+        extractor = _YamlExtractor(filename, source)
         ir = extractor.extract(parsed)
         jobs = parsed.get("jobs") if isinstance(parsed, dict) else None
         rule_findings = (

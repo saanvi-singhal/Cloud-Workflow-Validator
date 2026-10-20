@@ -362,3 +362,140 @@ def test_unknown_job_and_step_keys_are_reported(adapter):
         (5, "'run-on' is not a key of job 'a'"),
         (8, "'working_directory' is not a key of step 1 of job 'a'"),
     ]
+
+
+VULNERABLE = """\
+name: Vulnerable Pipeline
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  process-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print Issue Title
+        run: echo "Issue title is ${{ github.event.issue.title }}"
+
+      - name: Invalid Context
+        if: ${{ secrets.MY_TOKEN != '' }}
+        run: echo "Token exists"
+"""
+
+
+def test_script_injection_and_secrets_in_if_are_reported(adapter):
+    result = compile_source(VULNERABLE, SourceFormat.yaml, adapter=adapter)
+    assert result.valid is False
+    found = [
+        (
+            d.code,
+            d.severity.value,
+            d.source_location.start_line,
+            d.source_location.start_column,
+            d.source_location.end_column,
+        )
+        for d in result.diagnostics
+    ]
+    assert found == [
+        (DiagnosticCode.SECURITY_RULE_VIOLATION, "warning", 11, 35, 66),
+        (DiagnosticCode.YAML_SYNTAX_ERROR, "error", 14, 17, 24),
+    ]
+    injection = next(
+        r for r in result.recommendations if r.rule_id == "GHA_SCRIPT_INJECTION"
+    )
+    assert injection.related_node_ids == ["gha:job:process-issue"]
+    assert "TITLE: ${{ github.event.issue.title }}" in injection.proposed_change.preview
+
+
+def _workflow(step: str) -> str:
+    return f"on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n{step}"
+
+
+def _rule_ids(adapter, source):
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    return [r.rule_id for r in result.recommendations]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "github.event.issue.body",
+        "github.event.pull_request.title",
+        "github.event.pull_request.head.ref",
+        "github.head_ref",
+        "github.event.comment.body",
+        "github.event.commits[0].message",
+        "github.event.head_commit.author.name",
+        "github.event.workflow_run.head_branch",
+        "toJSON(github.event.issue.title)",
+    ],
+)
+def test_untrusted_fields_in_run_are_injection(adapter, expression):
+    source = _workflow(f'      - run: echo "${{{{ {expression} }}}}"\n')
+    assert _rule_ids(adapter, source) == ["GHA_SCRIPT_INJECTION"]
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        # Trusted or not attacker-controlled values.
+        '      - run: echo "${{ github.sha }} ${{ github.event.issue.number }}"\n',
+        '      - run: echo "${{ github.event.pull_request.base.ref }}"\n',
+        # The safe pattern: untrusted data passed through env.
+        "      - env:\n          TITLE: ${{ github.event.issue.title }}\n"
+        '        run: echo "$TITLE"\n',
+        # Inputs of ordinary actions are not scripts.
+        "      - uses: actions/labeler@v5\n        with:\n"
+        "          title: ${{ github.event.issue.title }}\n",
+    ],
+)
+def test_safe_uses_are_not_injection(adapter, step):
+    assert _rule_ids(adapter, _workflow(step)) == []
+
+
+def test_injection_in_a_block_script_and_github_script_is_located(adapter):
+    source = _workflow(
+        "      - run: |\n"
+        "          echo start\n"
+        '          echo "${{ github.event.pull_request.head.ref }}"\n'
+        "      - uses: actions/github-script@v7\n"
+        "        with:\n"
+        "          script: console.log('${{ github.event.comment.body }}')\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    assert [
+        (d.source_location.start_line, d.source_location.start_column)
+        for d in result.diagnostics
+    ] == [
+        (8, 17),
+        (11, 32),  # after `          script: console.log('`
+    ]
+
+
+@pytest.mark.parametrize(
+    ("condition", "fires"),
+    [
+        ("${{ secrets.MY_TOKEN != '' }}", True),
+        ("secrets.MY_TOKEN != ''", True),
+        ("${{ secrets['MY_TOKEN'] }}", True),
+        ("env.MY_TOKEN != ''", False),
+        ("github.event_name == 'push'", False),
+        ("contains(github.ref, 'secrets.')", False),
+    ],
+)
+def test_secrets_in_step_if(adapter, condition, fires):
+    source = _workflow(f"      - if: {condition}\n        run: echo\n")
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    messages = [d.message for d in result.diagnostics]
+    assert any("uses the secrets context" in m for m in messages) is fires
+
+
+def test_secrets_in_job_if(adapter):
+    source = (
+        "on: push\njobs:\n  a:\n    if: secrets.X\n    runs-on: x\n"
+        "    steps:\n      - run: echo\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.message.startswith("The 'if' of job 'a' uses the secrets context")
+    assert diagnostic.source_location.start_line == 4
