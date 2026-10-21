@@ -59,6 +59,17 @@ responses: format selection and request body, empty input, status, diagnostics
 and fixes, API error states (unreachable, 413, 422, 500), diagnostic → node
 details, and Dockerfile stage instructions. Run with `npm test` in `frontend/`.
 
+`frontend/src/e2e.test.tsx` is an opt-in end-to-end check against a running
+backend: every example and sample goes through the real UI and API, and the page
+must show the backend's result and each example's documented outcome. Run it
+with `E2E=1 npm test -- e2e` (see `frontend/README.md`); CI skips it.
+
+`backend/tests/integration/test_invariants.py` runs every example, fixture and
+sample, plus seeded random mutations of each, and checks invariants every
+response must satisfy (no crash, `valid` iff no errors, in-range locations,
+recommendations linked to real diagnostics and nodes, a consistent execution
+order, deterministic output).
+
 ## Markers
 
 Defined in `backend/pyproject.toml`. `--strict-markers` is on, so a typo in a

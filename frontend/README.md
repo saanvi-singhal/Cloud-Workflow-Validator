@@ -35,3 +35,17 @@ npm run build   # tsc -b (type check) + vite build
 ```
 
 CI runs all three (`.github/workflows/ci.yml`).
+
+### End-to-end check against the real backend
+
+`src/e2e.test.tsx` enters every file in `examples/` and every sample into the
+real UI, submits it to a **running** backend, and checks the page shows exactly
+what the API returned and what each example documents: the status, every
+diagnostic and fix (with previews), the execution order or why it is missing,
+the partial-analysis banner, and the empty-graph message. It is skipped unless
+`E2E=1`:
+
+```bash
+(cd ../backend && ../.venv/bin/uvicorn app.main:app --port 8000) &
+E2E=1 npm test -- e2e
+```
