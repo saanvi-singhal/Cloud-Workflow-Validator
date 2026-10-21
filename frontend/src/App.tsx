@@ -23,31 +23,48 @@ const SAMPLES: Record<SourceFormat, string> = {
 };
 
 const STATUS_STYLES: Record<StatusTone, string> = {
-  valid: 'bg-green-100 text-green-700',
-  warning: 'bg-amber-100 text-amber-700',
-  error: 'bg-red-100 text-red-700',
+  valid: 'bg-green-100 text-green-800 ring-1 ring-green-300',
+  warning: 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
+  error: 'bg-red-100 text-red-800 ring-1 ring-red-300',
 };
 
 const FEATURES = [
-  { icon: '🕸️', title: 'Dependency graph', text: 'See how every resource, stage or task connects.' },
-  { icon: '🔍', title: 'Issue detection', text: 'Catch cycles and missing references before deploying.' },
-  { icon: '🛠️', title: 'Suggested fixes', text: 'Get clear recommendations with a preview of the change.' },
+  {
+    icon: '🕸️',
+    title: 'Dependency graph',
+    text: 'See how every resource, stage or task connects.',
+    style: 'border-indigo-500 bg-indigo-50',
+  },
+  {
+    icon: '🔍',
+    title: 'Issue detection',
+    text: 'Catch cycles and missing references before deploying.',
+    style: 'border-rose-500 bg-rose-50',
+  },
+  {
+    icon: '🛠️',
+    title: 'Suggested fixes',
+    text: 'Get clear recommendations with a preview of the change.',
+    style: 'border-emerald-500 bg-emerald-50',
+  },
 ];
 
 const SEVERITY_STYLES: Record<string, { card: string; title: string }> = {
   error: {
-    card: 'border-red-200 bg-red-50 hover:bg-red-100',
+    card: 'border-red-300 bg-red-50 hover:bg-red-100',
     title: 'text-red-700',
   },
   warning: {
-    card: 'border-amber-200 bg-amber-50 hover:bg-amber-100',
+    card: 'border-amber-300 bg-amber-50 hover:bg-amber-100',
     title: 'text-amber-700',
   },
   info: {
-    card: 'border-sky-200 bg-sky-50 hover:bg-sky-100',
+    card: 'border-sky-300 bg-sky-50 hover:bg-sky-100',
     title: 'text-sky-700',
   },
 };
+
+type View = 'editor' | 'results';
 
 function detectLanguage(fileName: string): SourceFormat | null {
   const name = fileName.toLowerCase();
@@ -65,11 +82,13 @@ export default function App() {
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
   const [uploadNote, setUploadNote] = useState('');
+  const [view, setView] = useState<View>('editor');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
   const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
 
   async function handleAnalyze() {
     if (code.trim() === '') {
@@ -86,6 +105,8 @@ export default function App() {
     try {
       const data = await analyze(language, code, fileName || undefined);
       setResult(data);
+      setView('results');
+      topRef.current?.scrollIntoView?.({ behavior: 'smooth' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
@@ -140,157 +161,193 @@ export default function App() {
     el.scrollTop = Math.max(0, (location.start_line - 3) * 20);
   }
 
+  // Goes back to the editor page, then selects the location once it is visible.
+  function showInEditor(location: Diagnostic['source_location']) {
+    setView('editor');
+    setTimeout(() => jumpTo(location), 0);
+  }
+
   const status = result ? getStatus(result) : null;
   const selectedNode = result?.graph.nodes.find(n => n.id === selectedNodeId) ?? null;
   const partial = result ? isPartial(result) : false;
+  const hasFixes = (result?.recommendations.length ?? 0) > 0;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-linear-to-r from-slate-900 via-indigo-900 to-slate-900 px-8 py-12 text-center text-white">
-        <h1 className="text-4xl font-bold">Cloud Workflow Validator</h1>
-        <p className="mx-auto mt-3 max-w-xl text-lg text-indigo-100">
+    <div className="min-h-screen bg-linear-to-b from-indigo-50 via-slate-50 to-white text-slate-900">
+      <div ref={topRef} />
+      <header
+        className={`bg-linear-to-r from-indigo-600 via-purple-600 to-pink-500 px-8 text-center text-white shadow-lg ${
+          view === 'results' ? 'py-6' : 'py-14'
+        }`}
+      >
+        <h1 className="text-4xl font-extrabold tracking-tight">Cloud Workflow Validator</h1>
+        <p className="mx-auto mt-3 max-w-xl text-lg text-indigo-50">
           Analyze configuration dependencies before deployment.
         </p>
       </header>
 
-      <main className="mx-auto max-w-6xl p-8">
+      {/* ---------------- Page 1: the editor ---------------- */}
+      <main className={`mx-auto max-w-4xl p-6 sm:p-8 ${view === 'editor' ? '' : 'hidden'}`}>
         <div className="mb-8 grid gap-4 sm:grid-cols-3">
           {FEATURES.map(f => (
-            <div key={f.title} className="rounded-xl bg-white p-5 shadow-sm">
-              <div className="text-2xl">{f.icon}</div>
-              <h3 className="mt-2 font-semibold text-slate-900">{f.title}</h3>
-              <p className="mt-1 text-sm text-slate-600">{f.text}</p>
+            <div key={f.title} className={`rounded-xl border-t-4 p-5 shadow-sm ${f.style}`}>
+              <div className="text-3xl">{f.icon}</div>
+              <h3 className="mt-2 text-lg font-bold text-slate-900">{f.title}</h3>
+              <p className="mt-1 text-base text-slate-700">{f.text}</p>
             </div>
           ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <section className="rounded-xl bg-white p-6 shadow">
-            <div className="flex items-end justify-between">
-              <label className="text-sm font-medium text-slate-700">
-                Input format
-                <select
-                  value={language}
-                  onChange={e => setLanguage(e.target.value as SourceFormat)}
-                  className="mt-1 block w-48 rounded-md border border-slate-300 p-2"
-                >
-                  <option value="terraform">Terraform</option>
-                  <option value="dockerfile">Dockerfile</option>
-                  <option value="yaml">YAML</option>
-                </select>
-              </label>
-              <div className="flex gap-4 text-sm font-medium">
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-indigo-600 hover:underline"
-                >
-                  Upload file
-                </button>
-                <button
-                  onClick={() => {
-                    setCode(SAMPLES[language]);
-                    setFileName('');
-                    setUploadNote('');
-                    setError('');
-                  }}
-                  className="text-indigo-600 hover:underline"
-                >
-                  Load sample
-                </button>
-              </div>
+        <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100 sm:p-8">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <label className="text-base font-semibold text-slate-800">
+              Input format
+              <select
+                value={language}
+                onChange={e => setLanguage(e.target.value as SourceFormat)}
+                className="mt-1 block w-56 rounded-lg border-2 border-indigo-200 bg-white p-2.5 text-base font-normal focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="terraform">Terraform</option>
+                <option value="dockerfile">Dockerfile</option>
+                <option value="yaml">YAML</option>
+              </select>
+            </label>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-lg border-2 border-indigo-500 bg-white px-4 py-2 text-base font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50"
+              >
+                <span aria-hidden="true">📁</span> Upload file
+              </button>
+              <button
+                onClick={() => {
+                  setCode(SAMPLES[language]);
+                  setFileName('');
+                  setUploadNote('');
+                  setError('');
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-base font-semibold text-white shadow-sm hover:bg-emerald-600"
+              >
+                <span aria-hidden="true">✨</span> Load sample
+              </button>
             </div>
+          </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".tf,.yml,.yaml,.dockerfile,Dockerfile,*"
-              onChange={handleFile}
-              className="hidden"
-            />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".tf,.yml,.yaml,.dockerfile,Dockerfile,*"
+            onChange={handleFile}
+            className="hidden"
+          />
 
-            {fileName && (
-              <p className="mt-3 text-xs text-slate-500">Loaded file: {fileName}</p>
-            )}
-            {uploadNote && (
-              <p className="mt-1 text-xs text-amber-600">{uploadNote}</p>
-            )}
+          {fileName && <p className="mt-3 text-sm text-slate-600">Loaded file: {fileName}</p>}
+          {uploadNote && <p className="mt-1 text-sm text-amber-700">{uploadNote}</p>}
 
-            <textarea
-              ref={textareaRef}
-              value={code}
-              onChange={e => setCode(e.target.value)}
-              placeholder="Paste your configuration here, or upload a file"
-              rows={14}
-              spellCheck={false}
-              className="mt-4 w-full rounded-md border border-slate-300 p-3 font-mono text-sm leading-5"
-            />
+          <textarea
+            ref={textareaRef}
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            placeholder="Paste your configuration here, or upload a file"
+            rows={16}
+            spellCheck={false}
+            className="mt-4 w-full rounded-lg border-2 border-indigo-200 bg-slate-50 p-4 font-mono text-base leading-5 text-slate-900 focus:border-indigo-500 focus:outline-none"
+          />
 
+          <div className="mt-5 flex flex-wrap items-center gap-4">
             <button
               onClick={handleAnalyze}
               disabled={loading}
-              className="mt-4 rounded-md bg-indigo-600 px-5 py-2 font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-linear-to-r from-indigo-600 to-purple-600 px-8 py-3 text-lg font-bold text-white shadow-md hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Analyzing...' : 'Analyze'}
             </button>
+            {result && (
+              <button
+                onClick={() => setView('results')}
+                className="rounded-lg border-2 border-purple-500 bg-white px-5 py-2.5 text-base font-semibold text-purple-700 hover:bg-purple-50"
+              >
+                View results
+              </button>
+            )}
+          </div>
+        </section>
+
+        {loading && (
+          <section className="mt-6 flex flex-col items-center justify-center rounded-2xl bg-white p-8 text-center shadow-lg ring-1 ring-indigo-100">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
+            <h2 className="mt-4 text-xl font-bold text-slate-900">Analyzing your configuration...</h2>
+            <p className="mt-1 text-base text-slate-600">
+              Building the dependency graph and checking for issues.
+            </p>
           </section>
+        )}
 
-          {loading ? (
-            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl bg-white p-6 text-center shadow">
-              <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
-              <h2 className="mt-4 text-lg font-semibold text-slate-800">Analyzing your configuration...</h2>
-              <p className="mt-1 text-sm text-slate-500">Building the dependency graph and checking for issues.</p>
-            </section>
-          ) : error ? (
-            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50 p-6 text-center">
-              <div className="text-4xl">⚠️</div>
-              <h2 className="mt-3 text-lg font-semibold text-red-700">Couldn't analyze</h2>
-              <p className="mt-1 max-w-sm text-sm text-red-600">{error}</p>
-            </section>
-          ) : result === null || status === null ? (
-            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white/60 p-6 text-center">
-              <div className="text-5xl">🕸️</div>
-              <h2 className="mt-3 text-lg font-semibold text-slate-800">
-                Your dependency graph will appear here
-              </h2>
-              <p className="mt-1 max-w-xs text-sm text-slate-500">
-                Choose a format, load a sample, upload a file or paste your own code, then click Analyze.
-              </p>
-            </section>
-          ) : (
-            <section className="rounded-xl bg-white p-6 shadow">
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${STATUS_STYLES[status.tone]}`}>
-                {status.label}
-              </span>
+        {!loading && error && (
+          <section className="mt-6 flex flex-col items-center justify-center rounded-2xl border-2 border-red-300 bg-red-50 p-8 text-center">
+            <div className="text-4xl">⚠️</div>
+            <h2 className="mt-3 text-xl font-bold text-red-700">Couldn't analyze</h2>
+            <p className="mt-1 max-w-lg text-base text-red-700">{error}</p>
+          </section>
+        )}
+      </main>
 
-              {partial && (
-                <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                  <span className="font-semibold">Partial analysis.</span> Some constructs could not be
-                  analysed, so the graph may be missing dependencies. See the unsupported-construct
-                  warnings below.
-                </div>
-              )}
+      {/* ---------------- Page 2: the big graph and the results ---------------- */}
+      {view === 'results' && result && status && (
+        <main className="mx-auto max-w-7xl p-6 sm:p-8">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <button
+              onClick={() => setView('editor')}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-base font-semibold text-white shadow-sm hover:bg-indigo-700"
+            >
+              <span aria-hidden="true">←</span> Back to editor
+            </button>
+            <span className={`rounded-full px-5 py-2 text-lg font-bold ${STATUS_STYLES[status.tone]}`}>
+              {status.label}
+            </span>
+          </div>
 
+          {partial && (
+            <div className="mb-6 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-base text-amber-900">
+              <span className="font-bold">Partial analysis.</span> Some constructs could not be
+              analysed, so the graph may be missing dependencies. See the unsupported-construct
+              warnings below.
+            </div>
+          )}
+
+          <div className="grid gap-6 xl:grid-cols-3">
+            <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100 xl:col-span-2">
               <DependencyGraph
                 result={result}
                 highlighted={highlighted}
                 onSelectNode={selectNode}
               />
+            </section>
 
-              {selectedNode && (
+            <aside>
+              {selectedNode ? (
                 <NodeDetails
                   result={result}
                   node={selectedNode}
-                  onJump={jumpTo}
+                  onJump={location => showInEditor(location)}
                   onSelectDiagnostic={selectDiagnostic}
                   onClose={() => selectNode(null)}
                 />
+              ) : (
+                <div className="flex min-h-48 items-center justify-center rounded-2xl border-2 border-dashed border-indigo-300 bg-white/70 p-6 text-center text-base text-slate-600">
+                  Select a box in the graph to inspect it here.
+                </div>
               )}
+            </aside>
+          </div>
 
-              <h2 className="mt-4 font-semibold text-slate-900">Diagnostics</h2>
+          <div className={`mt-6 grid gap-6 ${hasFixes ? 'lg:grid-cols-2' : ''}`}>
+            <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100">
+              <h2 className="text-xl font-bold text-slate-900">Diagnostics</h2>
               {result.diagnostics.length === 0 && (
-                <p className="mt-2 text-sm text-slate-500">No issues found.</p>
+                <p className="mt-2 text-base text-slate-600">No issues found.</p>
               )}
-              <ul className="mt-2 space-y-2">
+              <ul className="mt-3 space-y-3">
                 {result.diagnostics.map((d, i) => {
                   const s = SEVERITY_STYLES[d.severity] ?? SEVERITY_STYLES.info;
                   const where = formatLocation(d.source_location);
@@ -300,15 +357,15 @@ export default function App() {
                     <li
                       key={i}
                       onClick={clickable ? () => selectDiagnostic(i) : undefined}
-                      className={`rounded-md border p-3 text-sm ${s.card} ${clickable ? 'cursor-pointer' : ''} ${activeDiagnostic === i ? 'ring-2 ring-indigo-400' : ''}`}
+                      className={`rounded-lg border-2 p-4 text-base ${s.card} ${clickable ? 'cursor-pointer' : ''} ${activeDiagnostic === i ? 'ring-2 ring-indigo-500' : ''}`}
                     >
-                      <div className={`font-semibold ${s.title}`}>
+                      <div className={`font-bold ${s.title}`}>
                         {d.severity.toUpperCase()} · {d.code}
                         {where && ` · ${where}`}
                       </div>
-                      <div className="mt-1 text-slate-700">{d.message}</div>
+                      <div className="mt-1 text-slate-800">{d.message}</div>
                       {clickable && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-2 text-sm text-slate-600">
                           {where && linked
                             ? 'Click to show it in the editor and the graph'
                             : where
@@ -316,42 +373,58 @@ export default function App() {
                               : 'Click to show it in the graph'}
                         </div>
                       )}
+                      {where && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            showInEditor(d.source_location);
+                          }}
+                          className="mt-2 rounded-md bg-white px-3 py-1 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-300 hover:bg-indigo-50"
+                        >
+                          Show in editor
+                        </button>
+                      )}
                     </li>
                   );
                 })}
               </ul>
-
-              {result.recommendations.length > 0 && (
-                <h2 className="mt-5 font-semibold text-slate-900">Suggested fixes</h2>
-              )}
-              {result.recommendations.map(r => (
-                <div key={r.id} className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm">
-                  <div className="font-semibold text-indigo-800">{r.title}</div>
-                  <div className="mt-1 text-slate-700">{r.explanation}</div>
-                  {r.proposed_change && (
-                    <div className="mt-2">
-                      <div className="text-slate-700">
-                        <span className="font-medium">Suggested change:</span>{' '}
-                        {r.proposed_change.description}
-                      </div>
-                      {r.proposed_change.preview !== null && (
-                        <pre className="mt-2 rounded bg-slate-900 p-2 text-xs text-green-300">
-                          {r.proposed_change.preview}
-                        </pre>
-                      )}
-                    </div>
-                  )}
-                  {r.fix_kind === 'judgment' && (
-                    <div className="mt-2 text-xs text-slate-500">
-                      Review before applying: this tool never changes your files.
-                    </div>
-                  )}
-                </div>
-              ))}
             </section>
-          )}
-        </div>
-      </main>
+
+            {hasFixes && (
+              <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100">
+                <h2 className="text-xl font-bold text-slate-900">Suggested fixes</h2>
+                {result.recommendations.map(r => (
+                  <div
+                    key={r.id}
+                    className="mt-3 rounded-lg border-2 border-indigo-200 bg-indigo-50 p-4 text-base"
+                  >
+                    <div className="text-lg font-bold text-indigo-900">{r.title}</div>
+                    <div className="mt-1 text-slate-800">{r.explanation}</div>
+                    {r.proposed_change && (
+                      <div className="mt-3">
+                        <div className="text-slate-800">
+                          <span className="font-semibold">Suggested change:</span>{' '}
+                          {r.proposed_change.description}
+                        </div>
+                        {r.proposed_change.preview !== null && (
+                          <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-sm text-green-300">
+                            {r.proposed_change.preview}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                    {r.fix_kind === 'judgment' && (
+                      <div className="mt-3 text-sm text-slate-600">
+                        Review before applying: this tool never changes your files.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+        </main>
+      )}
     </div>
   );
 }
