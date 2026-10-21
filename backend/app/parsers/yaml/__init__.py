@@ -401,14 +401,20 @@ class _YamlExtractor:
     def _name_location(
         self, position: tuple[int, int] | None, name: str
     ) -> SourceLocation | None:
-        """Span of ``name`` at ``position``, skipping an opening quote."""
+        """Span of ``name`` at ``position``, skipping an opening quote.
+
+        The end is given only when the source there really reads ``name``.
+        A plain scalar folded over several lines, or a value YAML converted
+        (an empty key is ``None``), keeps just its start position.
+        """
         if position is None:
             return None
         line, col = position
         text = self.lines[line] if line < len(self.lines) else ""
         if col < len(text) and text[col] in "\"'":
             col += 1
-        return _position((line, col), self.filename, len(name))
+        exact = bool(name) and text[col : col + len(name)] == name
+        return _position((line, col), self.filename, len(name) if exact else None)
 
     def _check_unknown_keys(
         self,
@@ -426,12 +432,11 @@ class _YamlExtractor:
                     if str(key).startswith("x-")
                     else ""
                 )
+                shown = "An empty key" if key is None else f"'{key}'"
                 self._schema_error(
-                    f"'{key}' is not {what}, so GitHub will reject this "
+                    f"{shown} is not {what}, so GitHub will reject this "
                     f"workflow.{hint}",
-                    _position(
-                        _key_position(mapping, key), self.filename, len(str(key))
-                    ),
+                    self._name_location(_key_position(mapping, key), str(key)),
                     node_id,
                 )
 
@@ -444,7 +449,7 @@ class _YamlExtractor:
                     "reusable workflow with 'uses'; such a job only takes name, "
                     "uses, with, secrets, strategy, needs, if, concurrency and "
                     "permissions. GitHub will reject this workflow.",
-                    _position(_key_position(job, key), self.filename, len(str(key))),
+                    self._name_location(_key_position(job, key), str(key)),
                     node_id,
                 )
         inputs = job.get("with")
@@ -503,7 +508,7 @@ class _YamlExtractor:
         else:
             self._schema_error(
                 "'on' must be an event name, a list of events or a mapping of events.",
-                _value_position(data, "on"),
+                _position(_value_position(data, "on"), self.filename),
             )
             return
 
@@ -515,7 +520,7 @@ class _YamlExtractor:
                     if str(event) == "commit"
                     else f"'{event}' is not a GitHub Actions event, so GitHub "
                     "will reject this workflow.",
-                    _position(position, self.filename, len(str(event))),
+                    self._name_location(position, str(event)),
                 )
 
     def _check_job(
@@ -535,7 +540,7 @@ class _YamlExtractor:
             self._schema_error(
                 f"Job '{job_key}' is missing 'runs-on', so GitHub does not know "
                 "which runner to use.",
-                _position(job_position, self.filename, len(job_key)),
+                self._name_location(job_position, job_key),
                 node_id,
             )
 
@@ -545,7 +550,7 @@ class _YamlExtractor:
         if not isinstance(steps, list):
             self._schema_error(
                 f"'steps' in job '{job_key}' must be a list of steps.",
-                _value_position(job, "steps"),
+                _position(_value_position(job, "steps"), self.filename),
                 node_id,
             )
             return

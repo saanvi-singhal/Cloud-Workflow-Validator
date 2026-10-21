@@ -580,3 +580,62 @@ def test_unresolved_needs_points_at_the_missing_name(adapter, needs, line, colum
         column,
         column + 2,
     )
+
+
+@pytest.mark.parametrize(
+    ("source", "message", "line"),
+    [
+        # Found by mutation testing: these used to raise instead of reporting.
+        (
+            "on: push\njobs:\n  a:\n    runs-on: x\n"
+            "    steps:\n     \\ - run: echo a\n",
+            "'steps' in job 'a' must be a list of steps.",
+            6,
+        ),
+        (
+            "on: 3\njobs:\n  a:\n    runs-on: x\n    steps: [{run: echo}]\n",
+            "'on' must be an event name, a list of events or a mapping of events.",
+            1,
+        ),
+    ],
+)
+def test_wrong_types_for_on_and_steps_are_reported_not_raised(
+    adapter, source, message, line
+):
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.message == message
+    assert diagnostic.source_location.start_line == line
+
+
+def test_empty_key_is_named_as_such_and_not_given_a_span(adapter):
+    # Found by mutation testing: an empty key loads as None and was reported
+    # as 'None' with a 4-character span past the end of the line.
+    source = "on: push\njobs:\n  a:\n    runs-on: x\n    steps: [{run: echo}]\n:\n"
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.message.startswith("An empty key is not a top-level workflow key")
+    loc = diagnostic.source_location
+    assert (loc.start_line, loc.end_column) == (6, None)
+
+
+def test_folded_needs_name_keeps_only_its_start(adapter):
+    # `needs: a` continued on the next line folds into the name 'a ubuntu-latest'.
+    source = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    steps: [{run: echo}]\n"
+        "  b:\n    needs: a\n     ubuntu-latest\n"
+        "    runs-on: x\n    steps: [{run: echo}]\n"
+    )
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert "'a ubuntu-latest'" in diagnostic.message
+    loc = diagnostic.source_location
+    assert (loc.start_line, loc.start_column, loc.end_column) == (7, 12, None)
+
+
+def test_quoted_job_key_span_covers_the_name(adapter):
+    source = 'on: push\njobs:\n  "build":\n    steps: [{run: echo}]\n'
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    loc = diagnostic.source_location
+    assert (loc.start_line, loc.start_column, loc.end_column) == (3, 4, 9)

@@ -17,7 +17,6 @@ from app.models import DiagnosticCode, Severity, SourceFormat, SourceLocation
 from app.parsers.terraform.blocks import read_file
 from app.parsers.terraform.extractor import extract
 from app.parsers.terraform.hcl_loader import HclSyntaxError, parse_hcl
-from app.rules.terraform_rules import run_terraform_rules
 
 
 class TerraformAdapter:
@@ -47,6 +46,10 @@ class TerraformAdapter:
         provider_blocks = [
             (block, None) for block in terraform_file.blocks if block.type == "provider"
         ]
+        # Imported here: the rules import this package's `blocks` module, so a
+        # module-level import would be circular when the rules load first.
+        from app.rules.terraform_rules import run_terraform_rules
+
         rule_findings = run_terraform_rules([*extraction.modelled, *provider_blocks])
         return ParseResult(
             ir=extraction.ir,
