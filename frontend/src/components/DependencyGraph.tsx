@@ -13,6 +13,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { AnalysisResult, Severity } from '../types';
+import type { DiffHighlight } from '../graphDiff';
 import {
   EDGE_TYPE_LABELS,
   cycleHighlights,
@@ -82,9 +83,18 @@ interface Props {
   /** Nodes to ring, e.g. the selected node or a clicked diagnostic's nodes. */
   highlighted: ReadonlySet<string>;
   onSelectNode: (id: string | null) => void;
+  /** Version comparison: colour what changed (see graphDiff.ts). */
+  diff?: DiffHighlight;
 }
 
-export default function DependencyGraph({ result, highlighted, onSelectNode }: Props) {
+// Comparison colours: green = added, red = removed, orange = rewired.
+const DIFF_COLORS = {
+  added: { border: '#16a34a', background: '#dcfce7' },
+  removed: { border: '#dc2626', background: '#fee2e2' },
+  rewired: { border: '#ea580c', background: '#ffedd5' },
+};
+
+export default function DependencyGraph({ result, highlighted, onSelectNode, diff }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -127,7 +137,11 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
 
     const nodes: Node[] = result.graph.nodes.map(n => {
       const p = g.node(n.id);
-      const colors = NODE_COLORS[severities.get(n.id) ?? 'none'];
+      const colors = diff?.changedNodes.has(n.id)
+        ? DIFF_COLORS[diff.kind]
+        : diff?.rewiredNodes.has(n.id)
+          ? DIFF_COLORS.rewired
+          : NODE_COLORS[severities.get(n.id) ?? 'none'];
       const width = nodeWidth(n.label);
       const fileBadge = n.source_location?.file ?? (n.metadata?.file as string | undefined);
       return {
@@ -172,7 +186,9 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
       const isInterFile = Boolean(e.metadata?.is_interfile);
       if (isInterFile) interFileCount++;
 
-      const strokeColor = onCycle ? CYCLE_EDGE : isInterFile ? INTERFILE_EDGE : EDGE;
+      const diffEdge = diff?.changedEdges.has(edgeKey(e)) ? DIFF_COLORS[diff.kind].border : null;
+      const strokeColor =
+        diffEdge ?? (onCycle ? CYCLE_EDGE : isInterFile ? INTERFILE_EDGE : EDGE);
       const strokeDash = onCycle ? undefined : isInterFile ? '6 3' : EDGE_DASH[e.type];
 
       return {
@@ -187,7 +203,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
         animated: onCycle || isInterFile,
         style: {
           stroke: strokeColor,
-          strokeWidth: onCycle || isInterFile ? 2 : 1.5,
+          strokeWidth: diffEdge || onCycle || isInterFile ? 2 : 1.5,
           strokeDasharray: strokeDash,
         },
         labelStyle: {
@@ -212,7 +228,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
       severitiesShown: new Set(severities.values()),
       edgeTypes: [...new Set(drawable.map(e => e.type))].sort(),
     };
-  }, [result, g, rankdir, drawable, highlighted]);
+  }, [result, g, rankdir, drawable, highlighted, diff]);
 
   const graphEmpty = result.graph.nodes.length === 0;
   const order = result.execution_order;
@@ -313,6 +329,13 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
               <span className="ml-2 text-amber-400 font-semibold">amber = warning</span>
             )}
             {severitiesShown.has('info') && <span className="ml-2 text-sky-400 font-semibold">blue = info</span>}
+          </p>
+        )}
+        {diff && (
+          <p className="flex flex-wrap gap-x-3 font-semibold">
+            <span className="text-green-500">Green = added</span>
+            <span className="text-red-500">Red = removed</span>
+            <span className="text-orange-500">Orange = rewired</span>
           </p>
         )}
         {hasCycle && (

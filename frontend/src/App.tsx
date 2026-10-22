@@ -12,6 +12,7 @@ import {
 import DependencyGraph from './components/DependencyGraph';
 import NodeDetails from './components/NodeDetails';
 import MultiFilePanel from './components/MultiFilePanel';
+import CompareView from './components/CompareView';
 import terraformSample from './samples/main.tf?raw';
 import dockerfileSample from './samples/Dockerfile?raw';
 import yamlSample from './samples/ci.yml?raw';
@@ -198,6 +199,7 @@ export default function App() {
   const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
   const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -483,7 +485,19 @@ export default function App() {
           ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setCompareMode(on => !on)}
+            className="rounded-lg border border-sky-500/40 bg-slate-950/70 px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-sky-300 hover:bg-sky-950/60"
+          >
+            {compareMode ? 'Back to analysis' : 'Compare versions'}
+          </button>
+        </div>
+
+        {compareMode && <CompareView language={language} onLanguageChange={setLanguage} />}
+
+        <div className={compareMode ? 'hidden' : 'grid gap-6 lg:grid-cols-2'}>
           {/* Flight Management Computer / Editor Console */}
           <section className="aero-glass-panel rounded-xl p-6 shadow-2xl">
             <div className="flex flex-wrap items-end justify-between gap-3">

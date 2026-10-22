@@ -3,7 +3,7 @@
 // graph integration and API error states. fetch is stubbed with real backend
 // output (the mocks are generated from the backend, see scripts/generate_mocks.py).
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import terraformMock from './mocks/terraform.json';
@@ -292,5 +292,41 @@ describe('mixed formats', () => {
     await user.clear(third);
     await user.type(third, 'ci.yml{Enter}');
     expect((screen.getByLabelText('Input format') as HTMLSelectElement).value).toBe('mixed');
+  });
+});
+
+describe('graph diff', () => {
+  it('compares two versions and colours what changed', async () => {
+    const user = userEvent.setup();
+    const oldGraph = {
+      ...terraformMock,
+      diagnostics: [],
+      recommendations: [],
+      graph: {
+        nodes: terraformMock.graph.nodes.slice(0, 1),
+        edges: [],
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(oldGraph))
+      .mockResolvedValueOnce(ok(terraformMock));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Compare versions' }));
+    fireEvent.change(screen.getByPlaceholderText('Paste the old configuration here'), {
+      target: { value: 'resource "a" "b" {}' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Paste the new configuration here'), {
+      target: { value: 'resource "a" "b" {}\nresource "c" "d" {}' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Compare graphs' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const added = terraformMock.graph.nodes.length - 1;
+    expect(await screen.findByText(`${added} added nodes`)).toBeTruthy();
+    expect(screen.getByText('Old version graph')).toBeTruthy();
+    expect(screen.getByText('New version graph')).toBeTruthy();
   });
 });
