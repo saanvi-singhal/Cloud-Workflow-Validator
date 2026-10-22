@@ -83,6 +83,24 @@ describe('submitting a configuration', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText(/Please paste some code/)).toBeTruthy();
   });
+
+  it('clears current input when the clear input button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const clearBtn = screen.getByRole('button', { name: 'Clear input' }) as HTMLButtonElement;
+    expect(clearBtn.disabled).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    expect(clearBtn.disabled).toBe(false);
+
+    const textarea = screen.getByPlaceholderText(/Paste your terraform code here/) as HTMLTextAreaElement;
+    expect(textarea.value).not.toBe('');
+
+    await user.click(clearBtn);
+    expect(textarea.value).toBe('');
+    expect(clearBtn.disabled).toBe(true);
+  });
 });
 
 describe('API error states', () => {
