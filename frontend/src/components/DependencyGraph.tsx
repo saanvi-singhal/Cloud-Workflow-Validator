@@ -54,15 +54,15 @@ function nodeWidth(label: string): number {
   return Math.max(MIN_W, Math.ceil(label.length * 7.2) + 32);
 }
 
-const NODE_COLORS: Record<Severity | 'none', { border: string; background: string }> = {
-  error: { border: '#f43f5e', background: '#220d18' },
-  warning: { border: '#f59e0b', background: '#241a08' },
-  info: { border: '#38bdf8', background: '#082238' },
-  none: { border: '#334155', background: '#0b1324' },
+const NODE_COLORS: Record<Severity | 'none', { border: string; background: string; text: string }> = {
+  error: { border: '#ef4444', background: '#fef2f2', text: '#991b1b' },
+  warning: { border: '#f59e0b', background: '#fffbeb', text: '#92400e' },
+  info: { border: '#0284c7', background: '#f0f9ff', text: '#0369a1' },
+  none: { border: '#cbd5e1', background: '#ffffff', text: '#0f172a' },
 };
-const CYCLE_EDGE = '#f43f5e';
-const INTERFILE_EDGE = '#38bdf8';
-const HIGHLIGHT = '0 0 0 2px #38bdf8, 0 0 16px rgba(56, 189, 248, 0.55)';
+const CYCLE_EDGE = '#ef4444';
+const INTERFILE_EDGE = '#0284c7';
+const HIGHLIGHT = '0 0 0 3px rgba(2, 132, 199, 0.45)';
 
 // Typed edge styling (spec 8.3): explicit dependencies are dashed so they stand
 // out from references Terraform infers.
@@ -148,16 +148,16 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
         id: n.id,
         data: {
           label: (
-            <div className="leading-tight text-slate-100">
-              <div className="flex items-center justify-between gap-1 text-[9px] uppercase tracking-wider text-sky-400/80 font-mono">
+            <div className="leading-tight">
+              <div className="flex items-center justify-between gap-1 text-[9px] uppercase tracking-wide text-slate-500 font-mono">
                 <span>{n.type}</span>
                 {fileBadge && (
-                  <span className="max-w-[100px] truncate rounded border border-sky-500/30 bg-slate-800/90 px-1 font-mono text-[9px] lowercase text-sky-300 font-semibold">
+                  <span className="max-w-[100px] truncate rounded bg-slate-100 px-1 font-mono text-[9px] lowercase text-sky-700 font-semibold border border-slate-200">
                     {fileBadge}
                   </span>
                 )}
               </div>
-              <div className="font-mono text-xs font-semibold text-slate-100 mt-0.5 truncate">
+              <div className="font-mono text-xs font-semibold text-slate-900 mt-0.5 truncate">
                 {cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label}
               </div>
             </div>
@@ -175,7 +175,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
           cursor: 'pointer',
           border: `1.5px solid ${colors.border}`,
           background: colors.background,
-          boxShadow: highlighted.has(n.id) ? HIGHLIGHT : '0 2px 8px rgba(0,0,0,0.4)',
+          boxShadow: highlighted.has(n.id) ? HIGHLIGHT : '0 1px 3px rgba(0,0,0,0.06)',
         },
       };
     });
@@ -208,7 +208,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
         },
         labelStyle: {
           fontSize: 10,
-          fill: isInterFile ? '#38bdf8' : '#94a3b8',
+          fill: isInterFile ? '#0284c7' : '#475569',
           fontWeight: isInterFile ? 600 : 400,
         },
         markerEnd: {
@@ -237,15 +237,15 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
   return (
     <div className="mt-4">
       {graphEmpty ? (
-        <div className="flex h-[28rem] flex-col items-center justify-center rounded-xl border border-dashed border-slate-800 bg-slate-950/70 p-6 text-center">
-          <p className="font-mono text-xs uppercase tracking-widest text-sky-400 font-medium">Nothing to draw</p>
-          <p className="mt-1 max-w-sm text-sm text-slate-400">
+        <div className="flex h-[28rem] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+          <p className="font-medium text-slate-700">Nothing to draw</p>
+          <p className="mt-1 max-w-sm text-sm text-slate-500">
             No {NODE_NOUN[result.format]} were found in this file, so there is no dependency graph.
             See the diagnostics below.
           </p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-[28rem] rounded-xl border border-sky-500/20 bg-slate-950/90 shadow-[inset_0_0_30px_rgba(0,0,0,0.6)]">
+        <div ref={containerRef} className="h-[28rem] rounded-xl border border-slate-200 bg-white shadow-xs">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -258,7 +258,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
             onNodeClick={(_, node) => onSelectNode(node.id)}
             onPaneClick={() => onSelectNode(null)}
           >
-            <Background color="#1e293b" gap={20} />
+            <Background color="#e2e8f0" gap={16} />
             <Controls showInteractive={false}>
               <ControlButton
                 onClick={toggleFullscreen}
@@ -279,16 +279,16 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
         </div>
       )}
 
-      <div className="mt-2 space-y-1 text-xs text-slate-400">
+      <div className="mt-2 space-y-1 text-xs text-slate-600">
         <p>
           Arrows point from a prerequisite to the item that depends on it. Click a box for its
           details.
         </p>
         {edgeTypes.length > 0 && (
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="font-mono uppercase text-sky-400 text-[11px]">Edges:</span>
+            <span>Edges:</span>
             {edgeTypes.map(type => (
-              <span key={type} className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-300">
+              <span key={type} className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-700">
                 <svg width="22" height="6" aria-hidden="true">
                   <line
                     x1="0"
@@ -304,7 +304,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
               </span>
             ))}
             {hasInterFile && (
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-cyan-400">
+              <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-sky-700">
                 <svg width="22" height="6" aria-hidden="true">
                   <line
                     x1="0"
@@ -322,13 +322,13 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
           </p>
         )}
         {severitiesShown.size > 0 && (
-          <p className="font-mono text-[11px]">
+          <p>
             Box colour shows the most severe issue linked to it:
-            {severitiesShown.has('error') && <span className="ml-2 text-rose-400 font-semibold">red = error</span>}
+            {severitiesShown.has('error') && <span className="ml-2 font-medium text-red-600">red = error</span>}
             {severitiesShown.has('warning') && (
-              <span className="ml-2 text-amber-400 font-semibold">amber = warning</span>
+              <span className="ml-2 font-medium text-amber-600">amber = warning</span>
             )}
-            {severitiesShown.has('info') && <span className="ml-2 text-sky-400 font-semibold">blue = info</span>}
+            {severitiesShown.has('info') && <span className="ml-2 font-medium text-sky-600">blue = info</span>}
           </p>
         )}
         {diff && (
@@ -339,27 +339,27 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
           </p>
         )}
         {hasCycle && (
-          <p className="font-mono text-xs text-rose-400">
+          <p className="text-red-600">
             Animated red arrows form a dependency cycle. ↻ means an item depends on itself.
           </p>
         )}
       </div>
 
       <div className="mt-3 text-sm">
-        <div className="font-mono text-xs uppercase tracking-wider text-sky-400 font-semibold">Execution order</div>
+        <div className="font-semibold text-slate-900">Execution order</div>
         {order ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {order.map((id, i) => (
               <div key={id} className="flex items-center gap-2">
-                <span className="rounded-full border border-sky-500/30 bg-slate-800/90 px-3 py-1 font-mono text-xs font-medium text-sky-200">
+                <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 font-mono text-xs font-medium text-slate-700">
                   {i + 1}. {labelFor(result, id)}
                 </span>
-                {i < order.length - 1 && <span className="text-slate-500">→</span>}
+                {i < order.length - 1 && <span className="text-slate-400">→</span>}
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-slate-400 text-xs">{orderNote}</p>
+          <p className="mt-1 text-slate-500 text-xs">{orderNote}</p>
         )}
       </div>
     </div>

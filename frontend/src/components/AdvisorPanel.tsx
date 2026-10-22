@@ -48,26 +48,26 @@ export default function AdvisorPanel({ result, onSelectDiagnostic }: Props) {
 
   return (
     <section aria-label="Layer and cache advisor" className="mt-6">
-      <h2 className="font-mono text-base font-semibold uppercase tracking-wider text-white">
+      <h2 className="font-semibold text-slate-900">
         Layer &amp; cache advisor
       </h2>
       <div className="mt-2 grid gap-3 sm:grid-cols-3">
         {groups.map(group => (
-          <div key={group.title} className="rounded-lg border border-sky-500/30 bg-slate-950/60 p-3">
+          <div key={group.title} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="flex items-baseline justify-between">
-              <span className="font-mono text-xs font-semibold uppercase tracking-wide text-cyan-300">
+              <span className="text-xs font-semibold uppercase tracking-wide text-sky-700">
                 {group.title}
               </span>
-              <span className="font-mono text-lg font-bold text-white">{group.items.length}</span>
+              <span className="text-lg font-bold text-slate-900">{group.items.length}</span>
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">{group.hint}</p>
+            <p className="mt-1 text-[11px] text-slate-500">{group.hint}</p>
             <ul className="mt-2 space-y-1">
               {group.items.map(({ index, rule, d }) => (
                 <li key={index}>
                   <button
                     type="button"
                     onClick={() => onSelectDiagnostic(index)}
-                    className="text-left font-mono text-[11px] text-sky-300 hover:underline"
+                    className="text-left font-mono text-[11px] text-indigo-700 hover:underline"
                   >
                     {rule}
                     {d.source_location?.start_line ? ` · line ${d.source_location.start_line}` : ''}

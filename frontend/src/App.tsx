@@ -113,47 +113,43 @@ output "web_instance_id" {
 ];
 
 const STATUS_STYLES: Record<StatusTone, string> = {
-  valid: 'border border-emerald-500/50 bg-emerald-950/80 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.25)]',
-  warning: 'border border-amber-500/50 bg-amber-950/80 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.25)]',
-  error: 'border border-rose-500/50 bg-rose-950/80 text-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.3)]',
+  valid: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+  warning: 'bg-amber-100 text-amber-800 border border-amber-200',
+  error: 'bg-red-100 text-red-800 border border-red-200',
 };
 
 const FEATURES = [
   {
     icon: (
-      <svg className="h-6 w-6 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg className="h-5 w-5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="9" strokeDasharray="3 3" />
         <circle cx="12" cy="12" r="3" />
         <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
-        <path d="m5.6 5.6 2.1 2.1M16.3 16.3l2.1 2.1" />
       </svg>
     ),
-    tag: 'AVIONICS // 01',
     title: 'Dependency graph',
     text: 'See how every resource, stage or task connects.',
   },
   {
     icon: (
-      <svg className="h-6 w-6 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg className="h-5 w-5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M4 6h16M4 12h16M4 18h16" />
         <circle cx="9" cy="6" r="2" fill="currentColor" />
         <circle cx="15" cy="12" r="2" fill="currentColor" />
         <circle cx="9" cy="18" r="2" fill="currentColor" />
       </svg>
     ),
-    tag: 'TELEMETRY // 02',
     title: 'Inter-file & variable checks',
     text: 'Detect cross-file dependencies and duplicate variable definitions.',
   },
   {
     icon: (
-      <svg className="h-6 w-6 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg className="h-5 w-5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="m9 12 2 2 4-4" />
         <path d="M12 3a9 9 0 1 0 9 9" />
         <path d="M21 3v6h-6" />
       </svg>
     ),
-    tag: 'AUTOPILOT // 03',
     title: 'Suggested fixes',
     text: 'Get clear recommendations with a preview of the change.',
   },
@@ -161,16 +157,16 @@ const FEATURES = [
 
 const SEVERITY_STYLES: Record<string, { card: string; title: string }> = {
   error: {
-    card: 'border-rose-500/40 bg-rose-950/30 hover:bg-rose-950/50 shadow-sm',
-    title: 'text-rose-400',
+    card: 'border-red-200 bg-red-50/70 hover:bg-red-100/70',
+    title: 'text-red-700',
   },
   warning: {
-    card: 'border-amber-500/40 bg-amber-950/30 hover:bg-amber-950/50 shadow-sm',
-    title: 'text-amber-400',
+    card: 'border-amber-200 bg-amber-50/70 hover:bg-amber-100/70',
+    title: 'text-amber-700',
   },
   info: {
-    card: 'border-sky-500/40 bg-sky-950/30 hover:bg-sky-950/50 shadow-sm',
-    title: 'text-sky-300',
+    card: 'border-sky-200 bg-sky-50/70 hover:bg-sky-100/70',
+    title: 'text-sky-700',
   },
 };
 
@@ -433,56 +429,38 @@ export default function App() {
   const partial = result ? isPartial(result) : false;
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flightdeck-grid relative">
-      {/* Cockpit Canopy Top Header */}
-      <header className="relative border-b border-sky-500/20 bg-gradient-to-b from-[#0b1329] via-[#080d1a] to-[#070b14] px-8 pt-8 pb-10 text-center shadow-2xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between pb-4">
-          <div className="flex items-center gap-2 font-mono text-[11px] tracking-widest text-sky-400">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-            AVIONICS ONLINE // SYS-ID: CLOUD-VAL
-          </div>
-          <div className="hidden sm:flex items-center gap-4 font-mono text-[10px] tracking-wider text-slate-400">
-            <span>RADAR: ACTIVE</span>
-            <span>•</span>
-            <span>DIAGNOSTICS: READY</span>
-            <span>•</span>
-            <span>CHANNEL: FMC-01</span>
-          </div>
+    <div className="min-h-screen bg-slate-50/70 text-slate-800">
+      {/* Light Clean Aero Header */}
+      <header className="border-b border-slate-200/80 bg-gradient-to-b from-sky-50/60 via-white to-white px-8 py-10 text-center">
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-200/80 bg-sky-50/80 px-3 py-1 text-xs font-medium text-sky-800 mb-3 shadow-2xs">
+          <svg className="h-3.5 w-3.5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+          Pre-deployment validator
         </div>
-
-        <h1 className="text-4xl font-extrabold tracking-tight text-white drop-shadow-md sm:text-5xl">
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
           Cloud Workflow Validator
         </h1>
-        <p className="mx-auto mt-3 max-w-2xl text-base text-sky-200/90 font-sans">
+        <p className="mx-auto mt-2.5 max-w-xl text-base text-slate-600">
           Analyze configuration dependencies, cross-file variables, and issues before deployment.
         </p>
-
-        {/* Flight HUD coordinate strip */}
-        <div className="mx-auto mt-4 hidden sm:flex max-w-md items-center justify-center gap-6 rounded-full border border-sky-500/20 bg-slate-950/70 px-4 py-1 font-mono text-[10px] tracking-widest text-sky-400/80 uppercase">
-          <span>HDG 042°</span>
-          <span>•</span>
-          <span>ALT 34,000 FT</span>
-          <span>•</span>
-          <span>MODE: FLIGHTDECK</span>
-        </div>
       </header>
 
       <main className="mx-auto max-w-6xl p-6 sm:p-8">
-        {/* Top Avionics Instrument Cards */}
+        {/* Description Cards - Clean Aero Style */}
         <div className="mb-8 grid gap-4 sm:grid-cols-3">
           {FEATURES.map(f => (
             <div
               key={f.title}
-              className="aero-glass rounded-xl p-5 shadow-lg transition-all hover:border-sky-500/40"
+              className="flex items-start gap-3.5 rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs transition-all hover:border-sky-300 hover:shadow-sm"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-sky-500/20 bg-slate-950/80">
-                  {f.icon}
-                </div>
-                <span className="font-mono text-[10px] tracking-wider text-sky-400/70">{f.tag}</span>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 border border-sky-100 shadow-2xs">
+                {f.icon}
               </div>
-              <h3 className="mt-3 font-semibold text-white tracking-wide">{f.title}</h3>
-              <p className="mt-1 text-sm text-slate-400">{f.text}</p>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-slate-900 text-sm tracking-tight">{f.title}</h3>
+                <p className="mt-1 text-xs text-slate-500 leading-relaxed">{f.text}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -491,7 +469,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setCompareMode(on => !on)}
-            className="rounded-lg border border-sky-500/40 bg-slate-950/70 px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-sky-300 hover:bg-sky-950/60"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-xs hover:bg-indigo-50"
           >
             {compareMode ? 'Back to analysis' : 'Compare versions'}
           </button>
@@ -500,15 +478,15 @@ export default function App() {
         {compareMode && <CompareView language={language} onLanguageChange={setLanguage} />}
 
         <div className={compareMode ? 'hidden' : 'grid gap-6 lg:grid-cols-2'}>
-          {/* Flight Management Computer / Editor Console */}
-          <section className="aero-glass-panel rounded-xl p-6 shadow-2xl">
+          {/* Editor & Configuration Section */}
+          <section className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-xs">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <label className="text-xs font-mono font-semibold uppercase tracking-wider text-sky-300">
+              <label className="text-sm font-medium text-slate-700">
                 Input format
                 <select
                   value={language}
                   onChange={e => setLanguage(e.target.value as SourceFormat)}
-                  className="mt-1.5 block w-44 rounded-lg border border-slate-700 bg-slate-950 p-2 font-mono text-xs text-sky-200 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 focus:outline-hidden"
+                  className="mt-1 block w-44 rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-800 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:outline-hidden"
                 >
                   <option value="terraform">Terraform</option>
                   <option value="dockerfile">Dockerfile</option>
@@ -517,18 +495,18 @@ export default function App() {
                 </select>
               </label>
 
-              <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono">
+              <div className="flex flex-wrap items-center gap-2.5 text-sm font-medium">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-cyan-400 hover:text-cyan-300 hover:underline"
+                  className="text-sky-600 hover:text-sky-700 hover:underline"
                 >
                   Upload file(s)
                 </button>
                 <button
                   type="button"
                   onClick={loadSingleSample}
-                  className="text-cyan-400 hover:text-cyan-300 hover:underline"
+                  className="text-sky-600 hover:text-sky-700 hover:underline"
                 >
                   Load sample
                 </button>
@@ -536,7 +514,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={loadMultiFileSample}
-                    className="rounded border border-sky-500/30 bg-sky-950/60 px-2 py-1 text-sky-300 hover:bg-sky-900/60 transition-colors"
+                    className="rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs text-sky-700 hover:bg-sky-100 transition-colors"
                     title="Load multi-file Terraform module with main.tf, variables.tf, and outputs.tf"
                   >
                     Load multi-file sample
@@ -546,7 +524,7 @@ export default function App() {
                   type="button"
                   onClick={handleClearCurrentInput}
                   disabled={!code}
-                  className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-slate-300 hover:border-rose-500/50 hover:bg-rose-950/30 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title="Clear current input"
                 >
                   <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -566,8 +544,8 @@ export default function App() {
               className="hidden"
             />
 
-            {/* Multi-file tabs bar (Cockpit Nav Channels) */}
-            <div className="mt-4 flex items-center justify-between border-b border-slate-800 pb-2">
+            {/* Multi-file tabs bar */}
+            <div className="mt-4 flex items-center justify-between border-b border-slate-200 pb-2">
               <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto">
                 {files.map((file, idx) => {
                   const isActive = file.id === activeFileId;
@@ -581,11 +559,11 @@ export default function App() {
                       onClick={() => setActiveFileId(file.id)}
                       className={`group flex cursor-pointer items-center gap-1.5 rounded-t-md px-3 py-1.5 font-mono text-xs transition-colors ${
                         isActive
-                          ? 'border-b-2 border-cyan-400 bg-sky-950/70 font-semibold text-cyan-200 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
-                          : 'bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          ? 'border-b-2 border-sky-600 bg-sky-50 font-semibold text-sky-900'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                       }`}
                     >
-                      {hasErr && <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" title="Has errors" />}
+                      {hasErr && <span className="h-1.5 w-1.5 rounded-full bg-red-500" title="Has errors" />}
                       {renamingId === file.id ? (
                         <input
                           autoFocus
@@ -598,7 +576,7 @@ export default function App() {
                             if (e.key === 'Enter') renameFile(file.id, e.currentTarget.value);
                             if (e.key === 'Escape') setRenamingId(null);
                           }}
-                          className="w-28 rounded border border-cyan-500/60 bg-slate-950 px-1 font-mono text-xs text-cyan-100"
+                          className="w-28 rounded border border-sky-400 bg-white px-1 font-mono text-xs text-slate-900 focus:outline-hidden"
                         />
                       ) : (
                         <span
@@ -613,7 +591,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={e => handleRemoveFile(file.id, e)}
-                          className="ml-1 text-slate-500 hover:text-rose-400"
+                          className="ml-1 text-slate-400 hover:text-red-600"
                           title="Remove file"
                         >
                           ×
@@ -625,7 +603,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleAddFile}
-                  className="rounded border border-dashed border-sky-500/30 px-2 py-1 font-mono text-xs text-sky-400 hover:bg-sky-950/40 hover:text-sky-300 transition-colors"
+                  className="rounded px-2 py-1 font-mono text-xs text-sky-600 hover:bg-sky-50 transition-colors"
                   title="Add another file"
                 >
                   + Add file
@@ -633,15 +611,14 @@ export default function App() {
               </div>
 
               {isMultiFile && (
-                <span className="ml-2 shrink-0 rounded border border-cyan-500/30 bg-cyan-950/80 px-2 py-0.5 font-mono text-[11px] font-semibold text-cyan-300">
+                <span className="ml-2 shrink-0 rounded bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
                   {files.length} files
                 </span>
               )}
             </div>
 
-            {uploadNote && <p className="mt-2 font-mono text-xs text-amber-400">{uploadNote}</p>}
+            {uploadNote && <p className="mt-2 text-xs text-amber-600">{uploadNote}</p>}
 
-            {/* CRT Cockpit Editor Terminal */}
             <textarea
               ref={textareaRef}
               value={code}
@@ -649,7 +626,7 @@ export default function App() {
               placeholder={`Paste your ${activeFile.name ? activeFile.name : language} code here, or upload multiple files`}
               rows={14}
               spellCheck={false}
-              className="mt-3 w-full rounded-lg border border-slate-800 bg-slate-950/90 p-3.5 font-mono text-xs leading-relaxed text-sky-100 placeholder:text-slate-600 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 focus:outline-hidden"
+              className="mt-3 w-full rounded-lg border border-slate-300 bg-slate-50/50 p-3.5 font-mono text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500 focus:outline-hidden"
             />
 
             <div className="mt-4 flex items-center justify-between">
@@ -657,78 +634,72 @@ export default function App() {
                 type="button"
                 onClick={handleAnalyze}
                 disabled={loading}
-                className="rounded-lg bg-gradient-to-r from-sky-500 to-cyan-400 px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-wider text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.35)] hover:from-sky-400 hover:to-cyan-300 active:from-sky-600 active:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+                className="rounded-lg bg-sky-600 px-6 py-2.5 font-semibold text-xs text-white shadow-xs hover:bg-sky-500 active:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
               >
                 {loading ? 'Analyzing...' : isMultiFile ? `Analyze ${files.length} files` : 'Analyze'}
               </button>
 
               {isMultiFile && (
-                <span className="font-mono text-xs text-slate-400">
+                <span className="text-xs text-slate-500">
                   Cross-file variable references and dependencies will be checked.
                 </span>
               )}
             </div>
           </section>
 
-          {/* Results / Multi-Function Display (MFD) Section */}
+          {/* Results Section */}
           {loading ? (
-            <section className="aero-glass-panel flex min-h-80 flex-col items-center justify-center rounded-xl p-6 text-center shadow-2xl">
-              <div className="relative flex h-14 w-14 items-center justify-center">
-                <div className="absolute inset-0 animate-ping rounded-full border border-sky-400/40" />
-                <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-800 border-t-cyan-400" />
-              </div>
-              <h2 className="mt-5 font-mono text-base font-semibold uppercase tracking-wider text-white">
-                Analyzing your configuration...
-              </h2>
-              <p className="mt-1 font-mono text-xs text-slate-400">
+            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-slate-200/90 bg-white p-6 text-center shadow-xs">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-sky-600" />
+              <h2 className="mt-4 text-base font-semibold text-slate-800">Analyzing your configuration...</h2>
+              <p className="mt-1 text-xs text-slate-500">
                 Resolving cross-file dependencies and tracking variable occurrences.
               </p>
             </section>
           ) : error ? (
-            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-rose-500/40 bg-rose-950/30 p-6 text-center shadow-xl">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-rose-500/40 bg-rose-950/60 shadow-[0_0_15px_rgba(244,63,94,0.3)]">
-                <svg className="h-6 w-6 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50/80 p-6 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-600 mb-2">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
                   <line x1="12" y1="9" x2="12" y2="13" />
                   <line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
               </div>
-              <h2 className="mt-3 font-mono text-base font-semibold text-rose-400">Couldn't analyze</h2>
-              <p className="mt-1 max-w-sm text-sm text-rose-200/90">{error}</p>
+              <h2 className="mt-2 text-base font-semibold text-red-700">Couldn't analyze</h2>
+              <p className="mt-1 max-w-sm text-sm text-red-600">{error}</p>
             </section>
           ) : result === null || status === null ? (
-            <section className="aero-glass-panel flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-sky-500/20 p-6 text-center shadow-2xl">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-sky-500/30 bg-sky-950/50 shadow-[0_0_20px_rgba(56,189,248,0.2)]">
-                <svg className="h-8 w-8 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+            <section className="flex min-h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-6 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-sky-50 text-sky-600 border border-sky-100 mb-2 shadow-2xs">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <circle cx="12" cy="12" r="10" strokeDasharray="3 3" />
                   <circle cx="12" cy="12" r="6" />
                   <circle cx="12" cy="12" r="2" fill="currentColor" />
                   <path d="M12 2v20M2 12h20" />
-                  <path d="m12 12 7-7" strokeWidth="2" />
                 </svg>
               </div>
-              <h2 className="mt-4 text-lg font-semibold text-white">
+              <h2 className="mt-3 text-lg font-semibold text-slate-800">
                 Your dependency graph will appear here
               </h2>
-              <p className="mt-1 max-w-xs text-sm text-slate-400">
+              <p className="mt-1 max-w-xs text-sm text-slate-500">
                 Choose a format, load a sample or upload multiple files, then click Analyze.
               </p>
             </section>
           ) : (
-            <section className="aero-glass-panel rounded-xl p-6 shadow-2xl">
+            <section className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-xs">
               <div className="flex items-center justify-between">
-                <span className={`rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-wider ${STATUS_STYLES[status.tone]}`}>
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[status.tone]}`}>
                   {status.label}
                 </span>
                 {result.multifile && result.multifile.files.length > 1 && (
-                  <span className="rounded border border-sky-500/30 bg-sky-950/80 px-2.5 py-1 font-mono text-xs text-sky-300">
+                  <span className="rounded bg-sky-50 border border-sky-200 px-2.5 py-1 font-mono text-xs text-sky-700">
                     Validated {result.multifile.files.length} files
                   </span>
                 )}
               </div>
 
               {partial && (
-                <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/40 p-3 text-sm text-amber-200">
+                <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
                   <span className="font-semibold">Partial analysis.</span> Some constructs could not be
                   analysed, so the graph may be missing dependencies. See the unsupported-construct
                   warnings below.
@@ -761,9 +732,9 @@ export default function App() {
 
               <AdvisorPanel result={result} onSelectDiagnostic={selectDiagnostic} />
 
-              <h2 className="mt-6 font-mono text-base font-semibold uppercase tracking-wider text-white">Diagnostics</h2>
+              <h2 className="mt-6 font-semibold text-slate-900">Diagnostics</h2>
               {result.diagnostics.length === 0 && (
-                <p className="mt-2 text-sm text-slate-400 font-mono">No issues found.</p>
+                <p className="mt-2 text-sm text-slate-500">No issues found.</p>
               )}
               <ul className="mt-2 space-y-2">
                 {result.diagnostics.map((d, i) => {
@@ -775,15 +746,15 @@ export default function App() {
                     <li
                       key={i}
                       onClick={clickable ? () => selectDiagnostic(i) : undefined}
-                      className={`rounded-lg border p-3.5 text-sm transition-colors ${s.card} ${clickable ? 'cursor-pointer' : ''} ${activeDiagnostic === i ? 'ring-2 ring-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.3)]' : ''}`}
+                      className={`rounded-lg border p-3.5 text-sm transition-colors ${s.card} ${clickable ? 'cursor-pointer' : ''} ${activeDiagnostic === i ? 'ring-2 ring-sky-500' : ''}`}
                     >
-                      <div className={`font-mono text-xs font-semibold uppercase tracking-wide ${s.title}`}>
+                      <div className={`font-semibold ${s.title}`}>
                         {d.severity.toUpperCase()} · {d.code}
                         {where && ` · ${where}`}
                       </div>
-                      <div className="mt-1 text-slate-200">{d.message}</div>
+                      <div className="mt-1 text-slate-700">{d.message}</div>
                       {clickable && (
-                        <div className="mt-1.5 font-mono text-[11px] text-sky-400/80">
+                        <div className="mt-1 text-xs text-slate-500">
                           {where && linked
                             ? 'Click to show it in the editor and the graph'
                             : where
@@ -797,23 +768,23 @@ export default function App() {
               </ul>
 
               {result.recommendations.length > 0 && (
-                <h2 className="mt-6 font-mono text-base font-semibold uppercase tracking-wider text-white">Suggested fixes</h2>
+                <h2 className="mt-6 font-semibold text-slate-900">Suggested fixes</h2>
               )}
               {result.recommendations.map(r => (
-                <div key={r.id} className="mt-2.5 rounded-lg border border-sky-500/30 bg-sky-950/40 p-3.5 text-sm text-slate-200">
-                  <div className="font-mono text-xs font-semibold uppercase tracking-wide text-cyan-300">{r.title}</div>
-                  <div className="mt-1 text-slate-300">{r.explanation}</div>
+                <div key={r.id} className="mt-2.5 rounded-lg border border-sky-200 bg-sky-50/60 p-4 text-sm">
+                  <div className="font-semibold text-sky-900">{r.title}</div>
+                  <div className="mt-1 text-slate-700">{r.explanation}</div>
                   {r.proposed_change && (
                     <div className="mt-2">
-                      <div className="text-slate-300">
-                        <span className="font-semibold text-white">Suggested change:</span>{' '}
+                      <div className="text-slate-700">
+                        <span className="font-medium text-slate-900">Suggested change:</span>{' '}
                         {r.proposed_change.description}
                       </div>
                       {r.proposed_change.patch ? (
                         <PatchBlock patch={r.proposed_change.patch} id={r.id} />
                       ) : (
                         r.proposed_change.preview !== null && (
-                          <pre className="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-2.5 font-mono text-xs text-emerald-400">
+                          <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-2.5 font-mono text-xs text-green-300">
                             {r.proposed_change.preview}
                           </pre>
                         )
@@ -821,7 +792,7 @@ export default function App() {
                     </div>
                   )}
                   {r.fix_kind === 'judgment' && (
-                    <div className="mt-2 font-mono text-[11px] text-slate-400">
+                    <div className="mt-2 text-xs text-slate-500">
                       Review before applying: this tool never changes your files.
                     </div>
                   )}
