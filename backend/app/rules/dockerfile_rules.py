@@ -39,7 +39,20 @@ DF_CONSECUTIVE_RUN         info      two or more ``RUN`` in a row; each adds a
                                      not shrink the image
 DF_APT_UNPINNED_PACKAGES   info      ``apt-get install`` packages without a
                                      ``=version``
+DF_CURL_PIPE_SHELL         warning   a script downloaded with ``curl``/``wget``
+                                     is run straight away (``curl ... | sh``,
+                                     ``sh -c "$(curl ...)"``): whatever the
+                                     server returns runs unchecked in the build
+DF_APK_NO_CACHE            info      ``apk add`` without ``--no-cache`` (and no
+                                     ``rm -rf /var/cache/apk``): the package
+                                     index stays in the image
+DF_APK_UNPINNED_PACKAGES   info      ``apk add`` packages without a
+                                     ``=version`` or ``~version``
 =========================  ========  =========================================
+
+The shell-command rules (apt, apk, curl-pipe) also run on a build-context
+script that a ``RUN`` executes, when that script is uploaded with the
+Dockerfile (``SCRIPT_RULES``).
 """
 
 from __future__ import annotations
@@ -64,6 +77,9 @@ RULE_ADD_LOCAL_FILE = "DF_ADD_LOCAL_FILE"
 RULE_COPY_ALL_BEFORE_INSTALL = "DF_COPY_ALL_BEFORE_INSTALL"
 RULE_CONSECUTIVE_RUN = "DF_CONSECUTIVE_RUN"
 RULE_APT_UNPINNED_PACKAGES = "DF_APT_UNPINNED_PACKAGES"
+RULE_CURL_PIPE_SHELL = "DF_CURL_PIPE_SHELL"
+RULE_APK_NO_CACHE = "DF_APK_NO_CACHE"
+RULE_APK_UNPINNED_PACKAGES = "DF_APK_UNPINNED_PACKAGES"
 
 APT_TOOLS = frozenset({"apt-get", "apt"})
 # apt subcommands that ask for confirmation unless -y is given.
@@ -90,6 +106,14 @@ _INSTALL_COMMAND = re.compile(
 )
 _FROM = re.compile(r"^(?:--platform=\S+\s+)?(\S+)(?:\s+as\s+(\S+))?", re.IGNORECASE)
 _SHELL_SEPARATORS = re.compile(r"&&|\|\||;|\|")
+_SHELLS = r"(?:sudo\s+)?(?:/(?:usr/)?bin/)?(?:ba|z|da|k)?sh\b"
+_DOWNLOAD = r"\b(?:curl|wget)\b"
+# curl URL | sh,  sh -c "$(curl URL)",  bash <(curl URL)
+_CURL_PIPE_SHELL = re.compile(
+    rf"{_DOWNLOAD}[^|;&]*\|\s*{_SHELLS}"
+    rf"|{_SHELLS}\s+(?:-\w+\s+)*[\"']?\$\(\s*{_DOWNLOAD}"
+    rf"|{_SHELLS}\s+<\(\s*{_DOWNLOAD}"
+)
 
 
 @dataclass(frozen=True)
@@ -234,6 +258,61 @@ def check_apt(instruction: DockerInstruction) -> Iterator[Finding]:
                     instruction,
                     packages=unpinned,
                 )
+
+
+def check_curl_pipe_shell(instruction: DockerInstruction) -> Iterator[Finding]:
+    if instruction.keyword != "RUN":
+        return
+    match = _CURL_PIPE_SHELL.search(instruction.value)
+    if match:
+        yield _finding(
+            RULE_CURL_PIPE_SHELL,
+            Severity.warning,
+            "A script is downloaded and run in one step "
+            f"('{match.group(0).strip()}'). Whatever the server returns at "
+            "build time runs unchecked, as root. Download it, verify a "
+            "checksum, then run it, or install a released package instead.",
+            instruction,
+            command=match.group(0).strip(),
+        )
+
+
+def check_apk(instruction: DockerInstruction) -> Iterator[Finding]:
+    if instruction.keyword != "RUN":
+        return
+    cleans_cache = "/var/cache/apk" in instruction.value
+    for words in _shell_commands(instruction.value):
+        if not words or words[0] != "apk":
+            continue
+        sub = next((w for w in words[1:] if not w.startswith("-")), None)
+        if sub != "add":
+            continue
+        command = " ".join(words)
+        if "--no-cache" not in words and not cleans_cache:
+            yield _finding(
+                RULE_APK_NO_CACHE,
+                Severity.info,
+                f"'{command}' keeps the downloaded package index in the image. "
+                "Use 'apk add --no-cache' to keep the image smaller.",
+                instruction,
+                command=command,
+            )
+        after = words[words.index(sub) + 1 :]
+        unpinned = [
+            p
+            for p in after
+            if not p.startswith("-") and not re.search(r"[=~<>]", p) and "$" not in p
+        ]
+        if unpinned:
+            yield _finding(
+                RULE_APK_UNPINNED_PACKAGES,
+                Severity.info,
+                f"Packages installed without a version: {', '.join(unpinned)}. "
+                "Rebuilds may install different versions; pin them with "
+                "name=version (or name~major.minor) for reproducible images.",
+                instruction,
+                packages=unpinned,
+            )
 
 
 EXEC_FORM_INSTRUCTIONS = frozenset({"CMD", "ENTRYPOINT", "RUN", "SHELL"})
@@ -425,10 +504,20 @@ def check_consecutive_runs(
     yield from flush()
 
 
-INSTRUCTION_RULES: tuple[Callable[[DockerInstruction], Iterator[Finding]], ...] = (
+InstructionRule = Callable[[DockerInstruction], Iterator[Finding]]
+
+INSTRUCTION_RULES: tuple[InstructionRule, ...] = (
     check_exec_form_json,
     check_apt,
+    check_apk,
+    check_curl_pipe_shell,
     check_add_local_file,
+)
+# Rules over shell commands, also applied to the lines of a script a RUN runs.
+SCRIPT_RULES: tuple[InstructionRule, ...] = (
+    check_apt,
+    check_apk,
+    check_curl_pipe_shell,
 )
 FILE_RULES: tuple[Callable[[Sequence[DockerInstruction]], Iterator[Finding]], ...] = (
     check_base_images,

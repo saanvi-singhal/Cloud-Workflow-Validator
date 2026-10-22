@@ -72,6 +72,7 @@
             "instance_type",
             "user_data"
           ],
+          "file": "unsupported_expression.tf",
           "resource_type": "aws_instance",
           "name": "web"
         }
@@ -94,6 +95,7 @@
             "for_each",
             "subnet_id"
           ],
+          "file": "unsupported_expression.tf",
           "resource_type": "aws_network_interface",
           "name": "nics"
         }
@@ -116,6 +118,7 @@
             "cidr_block",
             "tags"
           ],
+          "file": "unsupported_expression.tf",
           "resource_type": "aws_vpc",
           "name": "main"
         }
@@ -137,6 +140,8 @@
           "attributes": [
             "type"
           ],
+          "file": "unsupported_expression.tf",
+          "variable_name": "subnet_ids",
           "name": "subnet_ids"
         }
       }
@@ -199,5 +204,6 @@
       },
       "related_node_ids": []
     }
-  ]
+  ],
+  "multifile": null
 }

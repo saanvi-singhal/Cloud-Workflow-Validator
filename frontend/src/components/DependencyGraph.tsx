@@ -74,6 +74,7 @@ const NODE_NOUN: Record<AnalysisResult['format'], string> = {
   yaml: 'workflow jobs',
   dockerfile: 'build stages',
   terraform: 'Terraform blocks',
+  mixed: 'jobs, build stages or Terraform blocks',
 };
 
 interface Props {

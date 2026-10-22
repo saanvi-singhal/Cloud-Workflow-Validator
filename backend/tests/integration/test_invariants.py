@@ -212,7 +212,8 @@ def mutate(text: str, rng: random.Random) -> str:
 
 def test_corpus_was_found():
     formats = {fmt for _, fmt in CORPUS}
-    assert formats == set(SourceFormat)
+    # Every single-file format; "mixed" is a multi-file mode, not a file type.
+    assert formats == set(SourceFormat) - {SourceFormat.mixed}
     assert len(CORPUS) >= 30
 
 

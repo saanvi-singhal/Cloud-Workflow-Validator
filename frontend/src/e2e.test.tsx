@@ -117,7 +117,7 @@ describe.skipIf(!enabled)('frontend shows the backend result for every sample in
 
     render(<App />);
     fireEvent.change(screen.getByLabelText('Input format'), { target: { value: format } });
-    fireEvent.change(screen.getByPlaceholderText(/Paste your configuration/), {
+    fireEvent.change(screen.getByPlaceholderText(/Paste your/), {
       target: { value: source },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));

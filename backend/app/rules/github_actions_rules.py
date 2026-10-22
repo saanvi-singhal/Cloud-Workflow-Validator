@@ -19,6 +19,12 @@ GHA_SCRIPT_INJECTION    warning   ``${{ ... }}`` with attacker-controlled
                                   ``script``. GitHub pastes the value into the
                                   script before it runs, so it can inject
                                   commands
+GHA_UNPINNED_ACTION     warning   a step or job ``uses`` an action or reusable
+                                  workflow by a branch (``@main``,
+                                  ``@master``) or with no ref. Whoever can push
+                                  to that branch changes what your workflow
+                                  runs; a version tag or commit SHA does not
+                                  move silently
 ======================  ========  ============================================
 """
 
@@ -33,6 +39,12 @@ from app.models import DiagnosticCode, Severity, SourceLocation
 
 RULE_NUMBER_LOSES_ZERO = "GHA_NUMBER_LOSES_ZERO"
 RULE_SCRIPT_INJECTION = "GHA_SCRIPT_INJECTION"
+RULE_UNPINNED_ACTION = "GHA_UNPINNED_ACTION"
+
+# Refs that do not move on their own: a full commit SHA or a version tag
+# (v4, v4.1.2, 1.0.0-beta). Anything else is treated as a branch.
+_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+_VERSION_TAG = re.compile(r"^v?\d+(?:\.\d+)*(?:[-+.][0-9A-Za-z.]+)?$")
 
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 _ITEM = r"(?:\.\*|\[[^\]]*\]|\.\w+)"  # commits.*  commits[0]
@@ -201,6 +213,67 @@ def check_script_injection(
                 )
 
 
+def _uses(job: Mapping[str, Any]) -> Iterator[tuple[Mapping[str, Any], str]]:
+    """(mapping, value) for a reusable-workflow call and every step's ``uses``."""
+    if isinstance(job.get("uses"), str):
+        yield job, job["uses"]
+    steps = job.get("steps")
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, Mapping) and isinstance(step.get("uses"), str):
+                yield step, step["uses"]
+
+
+def check_unpinned_actions(
+    jobs: Mapping[str, Any],
+    lines: list[str],
+    filename: str | None,
+    job_ids: Mapping[str, str],
+) -> Iterator[Finding]:
+    for job_key, job in jobs.items():
+        if not isinstance(job, Mapping):
+            continue
+        node_id = job_ids.get(str(job_key))
+        for mapping, uses in _uses(job):
+            # Local actions are part of the repository; docker:// images are
+            # covered by image pinning, not by this rule.
+            if uses.startswith(("./", "docker://")):
+                continue
+            action, _, ref = uses.partition("@")
+            if ref and (_FULL_SHA.match(ref) or _VERSION_TAG.match(ref)):
+                continue
+            location = None
+            try:
+                line, col = mapping.lc.value("uses")
+                if line < len(lines) and lines[line].startswith(uses, col):
+                    location = SourceLocation(
+                        file=filename,
+                        start_line=line + 1,
+                        start_column=col + 1,
+                        end_line=line + 1,
+                        end_column=col + 1 + len(uses),
+                    )
+                else:
+                    location = SourceLocation(
+                        file=filename, start_line=line + 1, start_column=col + 1
+                    )
+            except Exception:
+                pass
+            problem = f"the branch '{ref}'" if ref else "no version"
+            yield make_finding(
+                DiagnosticCode.SECURITY_RULE_VIOLATION,
+                Severity.warning,
+                f"[{RULE_UNPINNED_ACTION}] '{uses}' uses {problem}, so whoever "
+                "can push to it changes the code this workflow runs, with your "
+                "repository's token and secrets. Pin a release tag or, safest, a "
+                "full commit SHA.",
+                location,
+                rule_id=RULE_UNPINNED_ACTION,
+                node_ids=(node_id,) if node_id else (),
+                details={"uses": uses, "action": action, "ref": ref},
+            )
+
+
 def run_github_actions_rules(
     jobs: Mapping[str, Any],
     source: str,
@@ -212,4 +285,5 @@ def run_github_actions_rules(
     return [
         *check_numbers_losing_zero(jobs, lines, filename, job_ids),
         *check_script_injection(jobs, source, lines, filename, job_ids),
+        *check_unpinned_actions(jobs, lines, filename, job_ids),
     ]

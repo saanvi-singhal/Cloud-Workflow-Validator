@@ -19,6 +19,7 @@ from typing import Any
 from dockerfile_parse import DockerfileParser
 
 from app.compiler.adapters import ParseResult, merge_independent
+from app.compiler.detect import base_name, is_dockerfile
 from app.compiler.findings import Finding, make_finding
 from app.compiler.ir import FORMAT_ID_PREFIX, IRGraph, make_node_id, unique_id
 from app.models import (
@@ -32,19 +33,16 @@ from app.models import (
     SourceLocation,
 )
 from app.rules.dockerfile_rules import (
+    RULE_APK_NO_CACHE,
     RULE_APT_UPDATE_ALONE,
+    SCRIPT_RULES,
     DockerInstruction,
     _shell_commands,
     _words,
-    check_apt,
     run_dockerfile_rules,
 )
 
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.dockerfile]
-
-# Multi-file mode: names that mark a Dockerfile, and extensions that never do.
-DOCKERFILE_NAMES = ("dockerfile", "containerfile")
-SCRIPT_SUFFIXES = (".sh", ".bash", ".zsh", ".ps1", ".py", ".js", ".txt", ".json")
 
 # Regex to match: FROM <image> [AS <stage_name>]
 _FROM_PATTERN = re.compile(
@@ -513,27 +511,6 @@ class _DockerfileExtractor:
         )
 
 
-def is_dockerfile(filename: str, source: str) -> bool:
-    """Whether an uploaded file is a Dockerfile rather than a build-context file.
-
-    By name first (``Dockerfile``, ``Dockerfile.api``, ``api.dockerfile``,
-    ``Containerfile``). A file with any other name counts as a Dockerfile only
-    if it has no script extension and its first instruction is FROM or ARG.
-    """
-    base = posixpath.basename(filename.replace("\\", "/")).lower()
-    if base.startswith(DOCKERFILE_NAMES) or base.endswith(
-        tuple(f".{name}" for name in DOCKERFILE_NAMES)
-    ):
-        return True
-    if base.endswith(SCRIPT_SUFFIXES):
-        return False
-    for line in source.splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            return stripped.split(None, 1)[0].upper() in ("FROM", "ARG")
-    return False
-
-
 def _script_lines(source: str) -> Iterator[tuple[int, int, str]]:
     """Logical shell lines of a script: (start_line, end_line, text), 1-based.
 
@@ -589,8 +566,9 @@ def _context_findings(
       found" when the source is missing), otherwise an ``info`` that the file
       was not checked;
     - a script a RUN executes (``RUN ./build.sh``, ``RUN sh build.sh``) gets
-      the apt rules, located in the script, since its commands run in that
-      build step. The script is read, never executed.
+      the shell-command rules (apt, apk, curl-pipe), located in the script,
+      since its commands run in that build step. The script is read, never
+      executed.
     """
     findings: list[Finding] = []
     links: dict[str, list[str]] = {}
@@ -660,9 +638,13 @@ def _context_findings(
                         stage_index=instruction.stage_index,
                         node_id=instruction.node_id,
                     )
-                    for finding in check_apt(step):
-                        # Separate lines of one script run in one layer.
-                        if finding.rule_id == RULE_APT_UPDATE_ALONE:
+                    for finding in (f for rule in SCRIPT_RULES for f in rule(step)):
+                        # The lines of one script run in one layer, so these
+                        # per-RUN layer rules do not apply line by line.
+                        if finding.rule_id in (
+                            RULE_APT_UPDATE_ALONE,
+                            RULE_APK_NO_CACHE,
+                        ):
                             continue
                         message = finding.diagnostic.message + where
                         findings.append(
@@ -725,11 +707,7 @@ class DockerfileAdapter:
         and scripts that a RUN executes are checked with the apt rules.
         """
         dockerfiles = [(n, s) for n, s in files if is_dockerfile(n, s)]
-        context = {
-            posixpath.basename(n.replace("\\", "/")): (n, s)
-            for n, s in files
-            if not is_dockerfile(n, s)
-        }
+        context = {base_name(n): (n, s) for n, s in files if not is_dockerfile(n, s)}
         if not dockerfiles:
             return ParseResult(
                 ir=None,

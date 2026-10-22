@@ -523,6 +523,61 @@ def _df_apt_unpinned_packages(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _df_curl_pipe_shell(finding: Finding, index: int) -> Recommendation:
+    return _make(
+        "DF_CURL_PIPE_SHELL",
+        finding,
+        index,
+        "Verify downloaded scripts before running them",
+        "Piping a download into a shell runs whatever the server sends, and a "
+        "URL on a branch (such as /main/) can change between builds. Pin the "
+        "URL to a release and check a published checksum first.",
+        ProposedChange(
+            description="Download to a file, verify its SHA-256, then run it.",
+            preview="- curl -sfL <url> | sh -s -- <args>\n"
+            "+ curl -sfLo /tmp/install.sh <url-of-a-release>\n"
+            '+ echo "<sha256>  /tmp/install.sh" | sha256sum -c -\n'
+            "+ sh /tmp/install.sh <args>",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_apk_no_cache(finding: Finding, index: int) -> Recommendation:
+    command = finding.details.get("command", "apk add")
+    fixed = command.replace("apk add", "apk add --no-cache", 1)
+    return _make(
+        "DF_APK_NO_CACHE",
+        finding,
+        index,
+        "Use apk add --no-cache",
+        "--no-cache fetches the package index for this command only, so it "
+        "is not stored in the image layer.",
+        ProposedChange(
+            description="Add --no-cache to apk add.",
+            preview=f"- {command}\n+ {fixed}",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+def _df_apk_unpinned_packages(finding: Finding, index: int) -> Recommendation:
+    packages = finding.details.get("packages", [])
+    return _make(
+        "DF_APK_UNPINNED_PACKAGES",
+        finding,
+        index,
+        "Pin package versions if builds must be reproducible",
+        "Without versions, apk installs whatever the repository offers at "
+        "build time. This is a tradeoff: pinned versions must be updated by hand.",
+        ProposedChange(
+            description="Pin as name=version or name~major.minor, e.g. "
+            + ", ".join(f"{p}~<version>" for p in packages[:3]),
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
 def _gha_number_loses_zero(finding: Finding, index: int) -> Recommendation:
     text = finding.details.get("text", "")
     seen = finding.details.get("seen", "")
@@ -564,6 +619,27 @@ def _gha_script_injection(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _gha_unpinned_action(finding: Finding, index: int) -> Recommendation:
+    uses = finding.details.get("uses", "")
+    action = finding.details.get("action", uses)
+    return _make(
+        "GHA_UNPINNED_ACTION",
+        finding,
+        index,
+        "Pin the action to a release or commit",
+        "A branch can be changed at any time, including by an attacker who "
+        "takes over the action's repository (as happened to tj-actions/"
+        "changed-files in 2025). A commit SHA cannot change; a release tag "
+        "rarely does. Look up the release you want on the action's page.",
+        ProposedChange(
+            description="Replace the branch with a full commit SHA (keep the "
+            "version in a comment), or at least a release tag.",
+            preview=f"- uses: {uses}\n+ uses: {action}@<40-char commit SHA> # vX.Y.Z",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
 SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
     "TF_S3_PUBLIC_ACL": _security_s3_public_acl,
     "TF_SG_OPEN_INGRESS": _security_open_ingress,
@@ -579,8 +655,12 @@ SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = 
     "DF_COPY_ALL_BEFORE_INSTALL": _df_copy_all_before_install,
     "DF_CONSECUTIVE_RUN": _df_consecutive_run,
     "DF_APT_UNPINNED_PACKAGES": _df_apt_unpinned_packages,
+    "DF_CURL_PIPE_SHELL": _df_curl_pipe_shell,
+    "DF_APK_NO_CACHE": _df_apk_no_cache,
+    "DF_APK_UNPINNED_PACKAGES": _df_apk_unpinned_packages,
     "GHA_NUMBER_LOSES_ZERO": _gha_number_loses_zero,
     "GHA_SCRIPT_INJECTION": _gha_script_injection,
+    "GHA_UNPINNED_ACTION": _gha_unpinned_action,
 }
 
 

@@ -15,12 +15,31 @@ import MultiFilePanel from './components/MultiFilePanel';
 import terraformSample from './samples/main.tf?raw';
 import dockerfileSample from './samples/Dockerfile?raw';
 import yamlSample from './samples/ci.yml?raw';
+import mixedWorkflow from './samples/mixed/ci.yml?raw';
+import mixedDockerfile from './samples/mixed/Dockerfile?raw';
+import mixedInstallScript from './samples/mixed/install-tools.sh?raw';
+import mixedScanScript from './samples/mixed/scan.sh?raw';
 
 // The same files are used to generate the mocks (frontend/scripts/generate_mocks.py).
-const SAMPLES: Record<SourceFormat, string> = {
+const SAMPLES: Record<Exclude<SourceFormat, 'mixed'>, string> = {
   terraform: terraformSample,
   dockerfile: dockerfileSample,
   yaml: yamlSample,
+};
+
+// A workflow, a Dockerfile and the scripts it uses, analysed together.
+const MIXED_SAMPLE: { name: string; content: string }[] = [
+  { name: 'ci.yml', content: mixedWorkflow },
+  { name: 'Dockerfile', content: mixedDockerfile },
+  { name: 'install-tools.sh', content: mixedInstallScript },
+  { name: 'scan.sh', content: mixedScanScript },
+];
+
+const FILE_EXTENSION: Record<SourceFormat, string> = {
+  terraform: '.tf',
+  yaml: '.yml',
+  dockerfile: '.dockerfile',
+  mixed: '.txt',
 };
 
 const MULTIFILE_TERRAFORM_SAMPLE: { name: string; content: string }[] = [
@@ -160,6 +179,13 @@ function detectLanguage(fileName: string): SourceFormat | null {
   return null;
 }
 
+/** 'mixed' when the named files have more than one format, else that format. */
+function detectFormats(names: string[]): SourceFormat | null {
+  const found = new Set(names.map(detectLanguage).filter(f => f !== null));
+  if (found.size > 1) return 'mixed';
+  return found.size === 1 ? [...found][0] : null;
+}
+
 export default function App() {
   const [language, setLanguage] = useState<SourceFormat>('terraform');
   const [files, setFiles] = useState<FileItem[]>([{ id: '1', name: '', content: '' }]);
@@ -171,6 +197,7 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
   const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -204,10 +231,11 @@ export default function App() {
     selectNode(null);
 
     try {
-      if (files.length > 1) {
+      // Mixed mode always sends files: the backend detects each one's format.
+      if (files.length > 1 || language === 'mixed') {
         // Multi-file validation
         const payload = files.map((f, i) => ({
-          filename: f.name || `file_${i + 1}.${language === 'terraform' ? 'tf' : language === 'yaml' ? 'yml' : 'dockerfile'}`,
+          filename: f.name || `file_${i + 1}${FILE_EXTENSION[language]}`,
           content: f.content,
         }));
         const data = await analyzeMultiFile(language, payload);
@@ -246,15 +274,18 @@ export default function App() {
     setError('');
 
     // Scripts and other build-context files (build.sh, package.json) don't
-    // name a format, so use the first file that does.
-    const firstDetected = newFiles.map(f => detectLanguage(f.name)).find(Boolean) ?? null;
+    // name a format; several formats together are analysed as 'mixed'.
+    const firstDetected = detectFormats(newFiles.map(f => f.name));
     if (firstDetected) {
       setLanguage(firstDetected);
       const others = newFiles.filter(f => detectLanguage(f.name) === null).length;
+      const hasDockerfile = newFiles.some(f => detectLanguage(f.name) === 'dockerfile');
       setUploadNote(
         newFiles.length > 1
-          ? `Loaded ${newFiles.length} files (${firstDetected}).` +
-              (firstDetected === 'dockerfile' && others > 0
+          ? (firstDetected === 'mixed'
+              ? `Loaded ${newFiles.length} files of different formats: each is analysed with its own parser.`
+              : `Loaded ${newFiles.length} files (${firstDetected}).`) +
+              (hasDockerfile && others > 0
                 ? ` ${others} other file(s) are treated as build context: COPY sources and scripts run by RUN are checked.`
                 : '')
           : ''
@@ -267,15 +298,33 @@ export default function App() {
   }
 
   function handleAddFile() {
-    const ext = language === 'terraform' ? '.tf' : language === 'yaml' ? '.yml' : '.dockerfile';
     const nextNum = files.length + 1;
     const newFile: FileItem = {
       id: String(Date.now()),
-      name: `module_${nextNum}${ext}`,
+      name: `module_${nextNum}${FILE_EXTENSION[language]}`,
       content: '',
     };
     setFiles(prev => [...prev, newFile]);
     setActiveFileId(newFile.id);
+    // Name it straight away, e.g. build.sh next to a Dockerfile.
+    setRenamingId(newFile.id);
+  }
+
+  function renameFile(id: string, rawName: string) {
+    setRenamingId(null);
+    const name = rawName.trim();
+    const current = files.find(f => f.id === id);
+    if (!current || !name || name === current.name) return;
+    if (files.some(f => f.id !== id && f.name === name)) {
+      setUploadNote(`There is already a file named ${name}.`);
+      return;
+    }
+    const renamed = files.map(f => (f.id === id ? { ...f, name } : f));
+    setFiles(renamed);
+    setUploadNote('');
+    // Adding e.g. ci.yml next to a Dockerfile switches to mixed analysis.
+    const detected = detectFormats(renamed.map(f => f.name));
+    if (detected === 'mixed') setLanguage('mixed');
   }
 
   function handleRemoveFile(id: string, e: React.MouseEvent) {
@@ -289,6 +338,10 @@ export default function App() {
   }
 
   function loadSingleSample() {
+    if (language === 'mixed') {
+      loadMixedSample();
+      return;
+    }
     setFiles([{ id: '1', name: '', content: SAMPLES[language] }]);
     setActiveFileId('1');
     setUploadNote('');
@@ -306,6 +359,21 @@ export default function App() {
     setFiles(newFiles);
     setActiveFileId(newFiles[1].id); // focus main.tf by default
     setUploadNote('Loaded 3-file Terraform module sample (variables.tf, main.tf, outputs.tf)');
+    setError('');
+    setResult(null);
+  }
+
+  function loadMixedSample() {
+    const newFiles = MIXED_SAMPLE.map((s, i) => ({
+      id: String(Date.now() + i),
+      name: s.name,
+      content: s.content,
+    }));
+    setFiles(newFiles);
+    setActiveFileId(newFiles[1].id); // the Dockerfile
+    setUploadNote(
+      'Loaded a workflow, a Dockerfile and the two scripts it copies; each is analysed with its own parser.',
+    );
     setError('');
     setResult(null);
   }
@@ -429,6 +497,7 @@ export default function App() {
                   <option value="terraform">Terraform</option>
                   <option value="dockerfile">Dockerfile</option>
                   <option value="yaml">YAML</option>
+                  <option value="mixed">Mixed (detect each file)</option>
                 </select>
               </label>
 
@@ -501,7 +570,29 @@ export default function App() {
                       }`}
                     >
                       {hasErr && <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" title="Has errors" />}
-                      <span className="truncate max-w-[120px]">{label}</span>
+                      {renamingId === file.id ? (
+                        <input
+                          autoFocus
+                          aria-label="File name"
+                          defaultValue={file.name}
+                          placeholder="e.g. build.sh"
+                          onClick={e => e.stopPropagation()}
+                          onBlur={e => renameFile(file.id, e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') renameFile(file.id, e.currentTarget.value);
+                            if (e.key === 'Escape') setRenamingId(null);
+                          }}
+                          className="w-28 rounded border border-cyan-500/60 bg-slate-950 px-1 font-mono text-xs text-cyan-100"
+                        />
+                      ) : (
+                        <span
+                          className="truncate max-w-[120px]"
+                          title="Double-click to rename"
+                          onDoubleClick={() => setRenamingId(file.id)}
+                        >
+                          {label}
+                        </span>
+                      )}
                       {files.length > 1 && (
                         <button
                           type="button"

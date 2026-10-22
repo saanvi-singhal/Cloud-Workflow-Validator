@@ -102,7 +102,7 @@ The format is `<format prefix>:<kind>:<identity>`. No UUIDs or hashes. If the sa
 
 - **Recognising a Dockerfile:** a file counts as a Dockerfile if its name is `Dockerfile`, `Dockerfile.*`, `*.dockerfile` or `Containerfile`, or if it has no script extension and its first instruction is `FROM`/`ARG`.
 - **COPY/ADD sources:** each literal source path is matched by base name against the uploaded files. A near-miss gives an `UNRESOLVED_DEPENDENCY` warning ("did you mean"). Any other unmatched file gives an `info` saying it was not checked. Directories and globs are skipped.
-- **Scripts run by RUN** (`RUN ./build.sh`, `RUN sh build.sh`): the script is checked with the apt rules (`DF_APT_MISSING_YES`, `DF_APT_UPGRADE`, `DF_APT_UNPINNED_PACKAGES`), at locations in the script. `DF_APT_UPDATE_ALONE` does not apply, because the lines of one script run in one layer. Scripts are read, never executed.
+- **Scripts run by RUN** (`RUN ./build.sh`, `RUN sh build.sh`): the script is checked with the shell-command rules (apt, apk and `DF_CURL_PIPE_SHELL`), at locations in the script. `DF_APT_UPDATE_ALONE` and `DF_APK_NO_CACHE` do not apply, because the lines of one script run in one layer. Scripts are read, never executed.
 - **Where links appear:** each link shows up in the stage's `metadata.context_files` and in `multifile.interfile_dependencies` with `edge_type: "docker_build_context"`.
 
 ## 4. Diagnostic codes
@@ -190,6 +190,9 @@ These are literal-only: a value that comes from a variable or expression never t
 | `DF_COPY_ALL_BEFORE_INSTALL` | info | `COPY . .` (or `ADD .`) before a dependency install (`npm install/ci`, `pip install -r`, `poetry install`, …) in the same stage |
 | `DF_CONSECUTIVE_RUN` | info | two or more `RUN` in a row in one stage; reported once per group, at its first `RUN` |
 | `DF_APT_UNPINNED_PACKAGES` | info | `apt-get install` packages without `=version` |
+| `DF_CURL_PIPE_SHELL` | warning | a download run straight away: `curl/wget ... \| sh`, `sh -c "$(curl ...)"`, `bash <(curl ...)` |
+| `DF_APK_NO_CACHE` | info | `apk add` without `--no-cache` (and no `rm -rf /var/cache/apk` in the same `RUN`) |
+| `DF_APK_UNPINNED_PACKAGES` | info | `apk add` packages without `=version` or `~version` |
 
 ## 8b. GitHub Actions rules
 
@@ -198,6 +201,7 @@ These are literal-only: a value that comes from a variable or expression never t
 | rule_id | Severity | Fires when |
 |---|---|---|
 | `GHA_NUMBER_LOSES_ZERO` | warning | an unquoted number with a trailing zero in its fraction (`3.10`, `18.0`) anywhere in a job; YAML reads it as a number, so GitHub sees `3.1` / `18` |
+| `GHA_UNPINNED_ACTION` | warning | a step's or job's `uses` points at a branch (`@main`, `@master`, anything that is not a version tag or a full commit SHA) or has no ref. Local `./` actions and `docker://` images are skipped. The recommendation previews pinning to a commit SHA |
 | `GHA_SCRIPT_INJECTION` | warning | `${{ ... }}` with attacker-controlled event data (issue/PR/discussion title or body, comment and review bodies, `head_ref` and other branch names, commit messages and authors, page names) inside a `run` script or `actions/github-script`'s `script`. Values passed through `env` are not flagged. The recommendation previews the `env` rewrite |
 
 Booleans and numbers in `env` (`DEBUG: true`, `PORT: 8080`) are *not* flagged: GitHub converts them to the strings `"true"` and `"8080"`.

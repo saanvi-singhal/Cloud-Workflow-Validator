@@ -111,6 +111,15 @@ async def validate_endpoint(request: ValidationRequest) -> dict[str, Any]:
             ) from exc
 
     if request.source is not None:
+        if request.format is SourceFormat.mixed:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "UNSUPPORTED_FORMAT",
+                    "message": "'mixed' detects each file's format, so it needs "
+                    "'files' (with file names), not 'source'.",
+                },
+            )
         source_bytes = len(request.source.encode("utf-8"))
         if source_bytes > MAX_SOURCE_BYTES:
             raise HTTPException(

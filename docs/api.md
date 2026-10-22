@@ -35,11 +35,29 @@ examples are real pipeline output (see [Examples](#examples)).
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `source` | string | yes | Source text. It is parsed, never executed. |
-| `format` | `"yaml"` \| `"dockerfile"` \| `"terraform"` | yes | Unknown values are rejected with a 4xx error. |
+| `source` | string | one of `source`/`files` | Source text. It is parsed, never executed. |
+| `files` | list of `{"filename", "content"}` | one of `source`/`files` | Several files analysed together (multi-file mode); `filename` is required here. The total size counts against `MAX_SOURCE_BYTES`. |
+| `format` | `"yaml"` \| `"dockerfile"` \| `"terraform"` \| `"mixed"` | yes | Unknown values are rejected with a 4xx error. `"mixed"` is only valid with `files` (422 with `source`). |
 | `filename` | string | no | Display name for diagnostics only (`source_location.file`). It is never opened on the server. If it is omitted, `file` is `null`. |
 
 There are no other request fields. In particular, there is no `options` object.
+
+**Multi-file mode.** A multi-file response adds a `multifile` summary: the files, inter-file dependencies, and Terraform variable occurrences. Single-file responses have `"multifile": null`. How node IDs and build-context files work is described in [compiler-core.md section 3](compiler-core.md#3-stable-node-ids).
+
+**`format: "mixed"`.** Each file's format is detected from its name:
+
+- `.tf` files are Terraform.
+- `.yml` and `.yaml` files are GitHub Actions workflows.
+- `Dockerfile`, `Dockerfile.*`, `*.dockerfile` and `Containerfile` are Dockerfiles. So is any file without a known extension whose first instruction is `FROM`.
+- Any other file is build context for the Dockerfiles, or is reported as not analysed (`UNSUPPORTED_CONSTRUCT`, info) if there is no Dockerfile.
+
+Each format group is analysed exactly as if it had been sent alone, with its own parser, rules and policy. The results are then merged into one graph and one sorted diagnostic list.
+
+The response for a mixed request differs from a single-format one in three ways:
+
+- `format` is `"mixed"`.
+- `execution_order` is always `null`. Job order, Docker stages and Terraform apply order are different kinds of order and are never mixed into one list.
+- `multifile.file_formats` maps each file to `"yaml"`, `"dockerfile"`, `"terraform"`, `"build_context"` or `"unknown"`.
 
 ## Response (HTTP 200)
 

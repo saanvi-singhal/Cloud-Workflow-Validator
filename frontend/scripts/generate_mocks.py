@@ -9,7 +9,9 @@ Every mock is real ``compile_source`` output:
 * terraform.json, yaml.json, dockerfile.json: the samples in
   ``frontend/src/samples/`` (``main.tf``, ``ci.yml``, ``Dockerfile``);
 * terraform-cycle.json: ``examples/terraform/cyclic.tf``;
-* terraform-partial.json: ``examples/terraform/unsupported_expression.tf``.
+* terraform-partial.json: ``examples/terraform/unsupported_expression.tf``;
+* mixed.json: ``compile_files`` over ``frontend/src/samples/mixed/`` with
+  ``format: mixed``.
 
 Mocks are only used when ``VITE_USE_MOCK=true``.
 """
@@ -23,7 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backend"))
 
-from app.compiler.pipeline import compile_source  # noqa: E402
+from app.compiler.pipeline import compile_files, compile_source  # noqa: E402
 from app.models import SourceFormat  # noqa: E402
 
 SAMPLES = REPO / "frontend" / "src" / "samples"
@@ -55,6 +57,14 @@ def main() -> None:
         path = MOCKS / name
         path.write_text(json.dumps(result.model_dump(mode="json"), indent=2) + "\n")
         print(f"wrote {path.relative_to(REPO)}")
+
+    # Same order as MIXED_SAMPLE in App.tsx.
+    names = ["ci.yml", "Dockerfile", "install-tools.sh", "scan.sh"]
+    files = [(n, (SAMPLES / "mixed" / n).read_text()) for n in names]
+    result = compile_files(files, SourceFormat.mixed)
+    path = MOCKS / "mixed.json"
+    path.write_text(json.dumps(result.model_dump(mode="json"), indent=2) + "\n")
+    print(f"wrote {path.relative_to(REPO)}")
 
 
 if __name__ == "__main__":
