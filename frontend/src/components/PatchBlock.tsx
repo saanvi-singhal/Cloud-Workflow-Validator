@@ -32,9 +32,7 @@ export default function PatchBlock({ patch, id }: Props) {
   return (
     <div className="mt-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-muted">
-          Patch (apply with git apply)
-        </span>
+        <span className="text-xs font-semibold text-muted">Patch (apply with git apply)</span>
         <span className="flex gap-2">
           <button
             type="button"
@@ -54,19 +52,19 @@ export default function PatchBlock({ patch, id }: Props) {
       </div>
       <pre
         aria-label="Patch"
-        className="mt-1.5 overflow-x-auto rounded-md bg-ink p-2.5 font-mono text-xs leading-relaxed"
+        className="mt-1.5 overflow-x-auto rounded-md bg-code p-2.5 text-code-text font-mono text-xs leading-relaxed"
       >
         {patch.split('\n').map((line, i) => (
           <div
             key={i}
             className={
               line.startsWith('+') && !line.startsWith('+++')
-                ? 'text-green-300'
+                ? 'text-code-add'
                 : line.startsWith('-') && !line.startsWith('---')
-                  ? 'text-red-300'
+                  ? 'text-code-del'
                   : line.startsWith('@@')
-                    ? 'text-[#8fc7f0]'
-                    : 'text-faint'
+                    ? 'text-code-hunk'
+                    : 'text-code-text opacity-70'
             }
           >
             {line || '\u00a0'}

@@ -25,10 +25,23 @@ const FORMATS: { value: SourceFormat; label: string }[] = [
   { value: 'mixed', label: 'Mixed' },
 ];
 
-const VERDICT_STYLE: Record<StatusTone, { rule: string; title: string }> = {
-  error: { rule: 'bg-error', title: 'text-error' },
-  warning: { rule: 'bg-warning', title: 'text-warning' },
-  valid: { rule: 'bg-ok', title: 'text-ok' },
+const VERDICT_STYLE: Record<
+  StatusTone,
+  { rule: string; title: string; tint: string; mark: string }
+> = {
+  error: {
+    rule: 'bg-error',
+    title: 'text-error',
+    tint: 'bg-error-soft',
+    mark: 'M8 8l8 8M16 8l-8 8',
+  },
+  warning: {
+    rule: 'bg-warning',
+    title: 'text-warning',
+    tint: 'bg-warning-soft',
+    mark: 'M12 7v6M12 16.5v.5',
+  },
+  valid: { rule: 'bg-ok', title: 'text-ok', tint: 'bg-ok-soft', mark: 'M7.5 12.5l3 3 6-7' },
 };
 
 type Tab = 'issues' | 'graph' | 'files' | 'advisor';
@@ -68,7 +81,8 @@ export default function AnalyzePage() {
   const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
   const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [showBlast, setShowBlast] = useState(false);
+  // Blast radius is drawn on the graph as soon as a node is selected.
+  const [showBlast, setShowBlast] = useState(true);
   const [tab, setTab] = useState<Tab>('issues');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -280,7 +294,7 @@ export default function AnalyzePage() {
   return (
     <div className="mx-auto grid max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
       <section aria-label="Configuration" className="min-w-0 lg:sticky lg:top-20 lg:self-start">
-        <div className="rounded-lg border border-line bg-surface">
+        <div className="rounded-lg border border-line bg-surface shadow-panel">
           <div className="border-b border-line-soft p-4">
             <div
               role="radiogroup"
@@ -403,7 +417,7 @@ export default function AnalyzePage() {
               type="button"
               onClick={() => void runAnalysis(files, language)}
               disabled={loading}
-              className="rounded-md bg-accent px-5 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md bg-accent px-5 py-2 text-sm font-semibold text-on-accent hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Analyzing...' : isMultiFile ? `Analyze ${files.length} files` : 'Analyze'}
             </button>
@@ -459,7 +473,7 @@ export default function AnalyzePage() {
 
       <section ref={resultsRef} aria-label="Results" className="min-w-0 scroll-mt-20">
         {loading ? (
-          <div className="rounded-lg border border-line bg-surface p-8">
+          <div className="rounded-lg border border-line bg-surface p-8 shadow-panel">
             <div className="h-1 w-full overflow-hidden rounded bg-line-soft">
               <div className="h-full w-1/3 animate-pulse rounded bg-accent" />
             </div>
@@ -533,12 +547,19 @@ function StartPanel({ onTry }: { onTry: (format: SourceFormat, multi?: boolean) 
     },
   ];
   return (
-    <div className="rounded-lg border border-line bg-surface p-6 sm:p-8">
-      <h2 className="text-xl font-semibold text-ink">Find out whether it's safe to deploy</h2>
-      <p className="mt-2 max-w-prose text-muted">
-        Paste a Terraform file, a GitHub Actions workflow or a Dockerfile and choose Analyze. You
-        get a verdict, every issue with its fix, and a graph of what depends on what.
-      </p>
+    <div className="rounded-lg border border-line bg-surface p-6 shadow-panel sm:p-8">
+      <div className="flex flex-col-reverse gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-ink">
+            Find out whether it's safe to deploy
+          </h2>
+          <p className="mt-2 max-w-prose text-muted">
+            Paste a Terraform file, a GitHub Actions workflow or a Dockerfile and choose Analyze.
+            You get a verdict, every issue with its fix, and a graph of what depends on what.
+          </p>
+        </div>
+        <PipelineDrawing />
+      </div>
       <h3 className="mt-6 text-sm font-medium text-ink">Or try an example</h3>
       <ul className="mt-2 divide-y divide-line-soft rounded-md border border-line-soft">
         {examples.map(e => (
@@ -555,6 +576,71 @@ function StartPanel({ onTry }: { onTry: (format: SourceFormat, multi?: boolean) 
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * A small pipeline graph with one broken step: what the tool draws for you.
+ * Drawn once on load (index.css), skipped for reduced motion.
+ */
+function PipelineDrawing() {
+  // Boxes like the graph's own nodes: 44 x 22, centred on (x, y).
+  const nodes = [
+    { x: 26, y: 50, label: 'build', delay: 0 },
+    { x: 105, y: 20, label: 'test', delay: 0.35 },
+    { x: 105, y: 80, label: 'scan', delay: 0.35, broken: true },
+    { x: 184, y: 50, label: 'deploy', delay: 0.7 },
+  ];
+  const edges = [
+    { d: 'M48 46 C 64 30, 66 20, 83 20', delay: 0.15 },
+    { d: 'M48 54 C 64 70, 66 80, 83 80', delay: 0.15 },
+    { d: 'M127 20 C 145 20, 147 40, 162 46', delay: 0.5 },
+    { d: 'M127 80 C 145 80, 147 60, 162 54', delay: 0.5, broken: true },
+  ];
+  return (
+    <svg
+      viewBox="0 0 210 100"
+      className="h-24 w-auto shrink-0 self-start sm:h-28"
+      role="img"
+      aria-label="A pipeline graph where the scan step blocks deploy"
+    >
+      {edges.map((e, i) => (
+        <path
+          key={i}
+          d={e.d}
+          className="hero-edge"
+          style={{ animationDelay: `${e.delay}s` }}
+          fill="none"
+          stroke={e.broken ? 'var(--graph-error)' : 'var(--graph-edge)'}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      ))}
+      {nodes.map(n => (
+        <g key={n.label} className="hero-node" style={{ animationDelay: `${n.delay}s` }}>
+          <rect
+            x={n.x - 22}
+            y={n.y - 11}
+            width="44"
+            height="22"
+            rx="6"
+            fill={n.broken ? 'var(--graph-error-bg)' : 'var(--graph-node)'}
+            stroke={n.broken ? 'var(--graph-error)' : 'var(--color-accent)'}
+            strokeWidth="1.6"
+          />
+          <text
+            x={n.x}
+            y={n.y + 3}
+            textAnchor="middle"
+            fontSize="9"
+            fontFamily="var(--font-mono)"
+            fill="var(--graph-node-text)"
+          >
+            {n.label}
+          </text>
+        </g>
+      ))}
+    </svg>
   );
 }
 
@@ -592,16 +678,26 @@ function Results(props: ResultsProps) {
   const current = tabs.some(t => t.id === tab) ? tab : 'issues';
 
   return (
-    <div className="rounded-lg border border-line bg-surface">
-      <header className="relative px-6 pt-5 pb-4">
-        <span
-          aria-hidden="true"
-          className={`absolute top-0 left-0 h-1 w-full rounded-t-lg ${style.rule}`}
-        />
-        <h2 className={`text-2xl font-semibold tracking-tight sm:text-[28px] ${style.title}`}>
-          {v.title}
-        </h2>
-        <p className="mt-1 text-muted">{v.detail}</p>
+    <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-panel">
+      <header className={`relative px-6 pt-6 pb-5 ${style.tint}`}>
+        <span aria-hidden="true" className={`absolute top-0 left-0 h-1 w-full ${style.rule}`} />
+        <div className="flex items-center gap-3">
+          <svg viewBox="0 0 24 24" className={`h-9 w-9 shrink-0 ${style.title}`} aria-hidden="true">
+            <circle cx="12" cy="12" r="11" fill="currentColor" />
+            <path
+              d={style.mark}
+              fill="none"
+              stroke="var(--color-surface)"
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <h2 className={`text-2xl font-semibold tracking-tight sm:text-[28px] ${style.title}`}>
+            {v.title}
+          </h2>
+        </div>
+        <p className="mt-2 text-ink/80">{v.detail}</p>
         {multi && (
           <p className="mt-1 text-sm text-faint">Checked {multi.files.length} files together.</p>
         )}
@@ -635,12 +731,16 @@ function Results(props: ResultsProps) {
           >
             {t.label}
             {t.count !== undefined && (
-              <span className="ml-1.5 text-faint">
-                {t.id === 'issues' && counts.error > 0 ? (
-                  <span className="text-error">{t.count}</span>
-                ) : (
-                  t.count
-                )}
+              <span
+                className={`ml-1.5 rounded-full px-1.5 py-px text-xs ${
+                  t.id === 'issues' && counts.error > 0
+                    ? 'bg-error-soft text-error'
+                    : current === t.id
+                      ? 'bg-accent-soft text-accent-strong'
+                      : 'bg-paper text-muted'
+                }`}
+              >
+                {t.count}
               </span>
             )}
           </button>

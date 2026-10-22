@@ -77,7 +77,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               placeholder="Paste the old configuration here"
               rows={14}
               spellCheck={false}
-              className={`${EDITOR} mt-1.5 border-error/30 focus:border-red-400 focus:ring-red-300`}
+              className={`${EDITOR} mt-1.5 border-error/30 focus:border-error focus:ring-error/40`}
             />
           </label>
           <label className="block text-sm font-semibold text-ok">
@@ -88,7 +88,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               placeholder="Paste the new configuration here"
               rows={14}
               spellCheck={false}
-              className={`${EDITOR} mt-1.5 border-ok/30 focus:border-green-400 focus:ring-green-300`}
+              className={`${EDITOR} mt-1.5 border-ok/30 focus:border-ok focus:ring-ok/40`}
             />
           </label>
         </div>
@@ -96,7 +96,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
           type="button"
           onClick={handleCompare}
           disabled={loading}
-          className="mt-4 rounded-md bg-accent px-5 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 rounded-md bg-accent px-5 py-2 text-sm font-semibold text-on-accent hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? 'Comparing...' : 'Compare graphs'}
         </button>
@@ -106,33 +106,31 @@ export default function CompareView({ language, onLanguageChange }: Props) {
       {results && diff && (
         <>
           <section className="rounded-xl border border-line/90 bg-surface p-6 ">
-            <h2 className="font-semibold text-ink">
-              Comparison summary
-            </h2>
+            <h2 className="font-semibold text-ink">Comparison summary</h2>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
               <span className="rounded bg-ok-soft px-3 py-1.5 text-ok">
                 {diff.addedNodes.length} added nodes
               </span>
-              <span className="rounded bg-error-soft px-3 py-1.5 text-red-800">
+              <span className="rounded bg-error-soft px-3 py-1.5 text-error">
                 {diff.removedNodes.length} removed nodes
               </span>
-              <span className="rounded bg-orange-100 px-3 py-1.5 text-orange-800">
+              <span className="rounded bg-blast-soft px-3 py-1.5 text-blast">
                 {diff.rewiredNodes.length} rewired
               </span>
               <span className="rounded bg-ok-soft px-3 py-1.5 text-ok">
                 {diff.addedEdges.length} added edges
               </span>
-              <span className="rounded bg-error-soft px-3 py-1.5 text-red-800">
+              <span className="rounded bg-error-soft px-3 py-1.5 text-error">
                 {diff.removedEdges.length} removed edges
               </span>
               <span
-                className={`rounded px-3 py-1.5 ${diff.newCycles.length ? 'bg-error-soft text-red-800' : 'bg-paper text-muted'}`}
+                className={`rounded px-3 py-1.5 ${diff.newCycles.length ? 'bg-error-soft text-error' : 'bg-paper text-muted'}`}
               >
                 {diff.newCycles.length} new cycles
               </span>
             </div>
             {diff.newCycles.length > 0 && (
-              <div className="mt-4 rounded-lg border border-error/30 bg-error-soft p-3 text-sm text-red-800">
+              <div className="mt-4 rounded-lg border border-error/30 bg-error-soft p-3 text-sm text-error">
                 <strong>The new version introduces a dependency cycle.</strong>
                 <ul className="mt-2 list-disc pl-5">
                   {diff.newCycles.map((cycle, i) => (
@@ -153,9 +151,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
 
           <div className="grid gap-6 xl:grid-cols-2">
             <section className="min-w-0 rounded-xl border border-line/90 bg-surface p-4 ">
-              <h2 className="text-sm font-semibold text-error">
-                Old version graph
-              </h2>
+              <h2 className="text-sm font-semibold text-error">Old version graph</h2>
               <DependencyGraph
                 result={results[0]}
                 highlighted={NO_HIGHLIGHT}
@@ -164,9 +160,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               />
             </section>
             <section className="min-w-0 rounded-xl border border-line/90 bg-surface p-4 ">
-              <h2 className="text-sm font-semibold text-ok">
-                New version graph
-              </h2>
+              <h2 className="text-sm font-semibold text-ok">New version graph</h2>
               <DependencyGraph
                 result={results[1]}
                 highlighted={NO_HIGHLIGHT}
@@ -177,15 +171,13 @@ export default function CompareView({ language, onLanguageChange }: Props) {
           </div>
 
           <section className="rounded-xl border border-line/90 bg-surface p-6 text-sm text-muted ">
-            <h2 className="font-semibold text-ink">
-              Changed nodes and dependencies
-            </h2>
+            <h2 className="font-semibold text-ink">Changed nodes and dependencies</h2>
             <div className="mt-3 grid gap-4 md:grid-cols-2">
               {(
                 [
                   ['Added nodes', diff.addedNodes, 'text-ok'],
                   ['Removed nodes', diff.removedNodes, 'text-error'],
-                  ['Rewired', diff.rewiredNodes, 'text-orange-700'],
+                  ['Rewired', diff.rewiredNodes, 'text-blast'],
                   ['Added dependencies', diff.addedEdges, 'text-ok'],
                   ['Removed dependencies', diff.removedEdges, 'text-error'],
                 ] as const

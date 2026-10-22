@@ -26,7 +26,8 @@ import {
 
 const MIN_W = 200;
 const H = 48;
-const EDGE = '#6b7783';
+// Colours come from the theme (index.css), so the graph follows dark mode.
+const EDGE = 'var(--graph-edge)';
 
 // Approximate size of the graph panel, used only to choose a layout direction.
 const PANEL = { width: 520, height: 448 };
@@ -39,7 +40,11 @@ function layout(
   rankdir: Direction,
 ) {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir, nodesep: rankdir === 'LR' ? 50 : 40, ranksep: rankdir === 'LR' ? 110 : 70 });
+  g.setGraph({
+    rankdir,
+    nodesep: rankdir === 'LR' ? 50 : 40,
+    ranksep: rankdir === 'LR' ? 110 : 70,
+  });
   g.setDefaultEdgeLabel(() => ({}));
   nodes.forEach(n => g.setNode(n.id, { width: nodeWidth(n.label), height: H }));
   edges.forEach(e => g.setEdge(e.source, e.target)); // source -> target, never reversed
@@ -55,15 +60,32 @@ function nodeWidth(label: string): number {
   return Math.max(MIN_W, Math.ceil(label.length * 7.2) + 32);
 }
 
-const NODE_COLORS: Record<Severity | 'none', { border: string; background: string; text: string }> = {
-  error: { border: '#b42318', background: '#fdecea', text: '#7a1710' },
-  warning: { border: '#b54708', background: '#fdf1e5', text: '#7a3005' },
-  info: { border: '#1d5fa6', background: '#e8f0fa', text: '#123e6d' },
-  none: { border: '#b9c1ca', background: '#ffffff', text: '#17212b' },
-};
-const CYCLE_EDGE = '#b42318';
-const INTERFILE_EDGE = '#0b7a75';
-const HIGHLIGHT = '0 0 0 3px rgba(11, 122, 117, 0.45)';
+const NODE_COLORS: Record<Severity | 'none', { border: string; background: string; text: string }> =
+  {
+    error: {
+      border: 'var(--graph-error)',
+      background: 'var(--graph-error-bg)',
+      text: 'var(--graph-node-text)',
+    },
+    warning: {
+      border: 'var(--graph-warning)',
+      background: 'var(--graph-warning-bg)',
+      text: 'var(--graph-node-text)',
+    },
+    info: {
+      border: 'var(--graph-info)',
+      background: 'var(--graph-info-bg)',
+      text: 'var(--graph-node-text)',
+    },
+    none: {
+      border: 'var(--graph-node-border)',
+      background: 'var(--graph-node)',
+      text: 'var(--graph-node-text)',
+    },
+  };
+const CYCLE_EDGE = 'var(--graph-error)';
+const INTERFILE_EDGE = 'var(--graph-interfile)';
+const HIGHLIGHT = '0 0 0 3px var(--graph-highlight)';
 
 // Typed edge styling (spec 8.3): explicit dependencies are dashed so they stand
 // out from references Terraform infers.
@@ -91,28 +113,24 @@ interface Props {
 }
 
 // Blast radius: the changed node in red, dependents warmer the closer they are.
-const BLAST_SOURCE = { border: '#dc2626', background: '#fee2e2' };
-const BLAST_DEPTH = [
-  { border: '#ea580c', background: '#ffedd5' },
-  { border: '#d97706', background: '#fef3c7' },
-  { border: '#ca8a04', background: '#fefce8' },
-];
-const BLAST_EDGE = '#ea580c';
+const BLAST_SOURCE = {
+  border: 'var(--graph-blast-source)',
+  background: 'var(--graph-blast-source-bg)',
+};
+const BLAST_DEPTH = [1, 2, 3].map(d => ({
+  border: `var(--graph-blast-${d})`,
+  background: `var(--graph-blast-${d}-bg)`,
+}));
+const BLAST_EDGE = 'var(--graph-blast-1)';
 
 // Comparison colours: green = added, red = removed, orange = rewired.
 const DIFF_COLORS = {
-  added: { border: '#16a34a', background: '#dcfce7' },
-  removed: { border: '#dc2626', background: '#fee2e2' },
-  rewired: { border: '#ea580c', background: '#ffedd5' },
+  added: { border: 'var(--graph-added)', background: 'var(--graph-added-bg)' },
+  removed: { border: 'var(--graph-removed)', background: 'var(--graph-removed-bg)' },
+  rewired: { border: 'var(--graph-rewired)', background: 'var(--graph-rewired-bg)' },
 };
 
-export default function DependencyGraph({
-  result,
-  highlighted,
-  onSelectNode,
-  diff,
-  blast,
-}: Props) {
+export default function DependencyGraph({ result, highlighted, onSelectNode, diff, blast }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -200,7 +218,7 @@ export default function DependencyGraph({
           cursor: 'pointer',
           border: `1.5px solid ${colors.border}`,
           background: colors.background,
-          boxShadow: highlighted.has(n.id) ? HIGHLIGHT : '0 1px 3px rgba(0,0,0,0.06)',
+          boxShadow: highlighted.has(n.id) ? HIGHLIGHT : '0 1px 2px rgba(0,0,0,0.08)',
           opacity: outsideBlast ? 0.35 : 1,
         },
       };
@@ -218,8 +236,7 @@ export default function DependencyGraph({
         : diff?.changedEdges.has(edgeKey(e))
           ? DIFF_COLORS[diff.kind].border
           : null;
-      const strokeColor =
-        diffEdge ?? (onCycle ? CYCLE_EDGE : isInterFile ? INTERFILE_EDGE : EDGE);
+      const strokeColor = diffEdge ?? (onCycle ? CYCLE_EDGE : isInterFile ? INTERFILE_EDGE : EDGE);
       const strokeDash = onCycle ? undefined : isInterFile ? '6 3' : EDGE_DASH[e.type];
 
       return {
@@ -238,9 +255,11 @@ export default function DependencyGraph({
           strokeDasharray: strokeDash,
           opacity: blast && !inBlast ? 0.3 : 1,
         },
+        // React Flow paints the label box white inline; follow the theme instead.
+        labelBgStyle: { fill: 'var(--color-surface)' },
         labelStyle: {
           fontSize: 10,
-          fill: isInterFile ? '#0284c7' : '#475569',
+          fill: isInterFile ? 'var(--graph-interfile)' : 'var(--graph-label)',
           fontWeight: isInterFile ? 600 : 400,
         },
         markerEnd: {
@@ -277,7 +296,7 @@ export default function DependencyGraph({
           </p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-[28rem] rounded-xl border border-line bg-surface ">
+        <div ref={containerRef} className="h-[30rem] rounded-xl border border-line bg-surface">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -290,15 +309,38 @@ export default function DependencyGraph({
             onNodeClick={(_, node) => onSelectNode(node.id)}
             onPaneClick={() => onSelectNode(null)}
           >
-            <Background color="#e2e8f0" gap={16} />
-            <Controls showInteractive={false}>
+            <Background color="var(--graph-grid)" gap={16} />
+            <Controls showInteractive={false} showFitView={false}>
+              {/* React Flow's own fit-view icon looks like the full-screen one,
+                  so fit view gets a target icon of its own. */}
+              <ControlButton
+                onClick={() => flow?.fitView({ padding: 0.15, duration: 300 })}
+                title="Fit graph to view"
+                aria-label="Fit graph to view"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  style={{ fill: 'none' }}
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                >
+                  <circle cx="12" cy="12" r="6.5" />
+                  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                  <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+                </svg>
+              </ControlButton>
               <ControlButton
                 onClick={toggleFullscreen}
                 title={isFullscreen ? 'Exit full screen' : 'Full screen'}
                 aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
               >
                 {/* React Flow's stylesheet fills control icons; this one is an outline. */}
-                <svg viewBox="0 0 24 24" style={{ fill: 'none' }} stroke="currentColor" strokeWidth="2.5">
+                <svg
+                  viewBox="0 0 24 24"
+                  style={{ fill: 'none' }}
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
                   {isFullscreen ? (
                     <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
                   ) : (
@@ -320,7 +362,10 @@ export default function DependencyGraph({
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Edges:</span>
             {edgeTypes.map(type => (
-              <span key={type} className="inline-flex items-center gap-1 font-mono text-[11px] text-muted">
+              <span
+                key={type}
+                className="inline-flex items-center gap-1 font-mono text-[11px] text-muted"
+              >
                 <svg width="22" height="6" aria-hidden="true">
                   <line
                     x1="0"
@@ -356,25 +401,29 @@ export default function DependencyGraph({
         {severitiesShown.size > 0 && (
           <p>
             Box colour shows the most severe issue linked to it:
-            {severitiesShown.has('error') && <span className="ml-2 font-medium text-error">red = error</span>}
+            {severitiesShown.has('error') && (
+              <span className="ml-2 font-medium text-error">red = error</span>
+            )}
             {severitiesShown.has('warning') && (
               <span className="ml-2 font-medium text-warning">amber = warning</span>
             )}
-            {severitiesShown.has('info') && <span className="ml-2 font-medium text-accent-strong">blue = info</span>}
+            {severitiesShown.has('info') && (
+              <span className="ml-2 font-medium text-accent-strong">blue = info</span>
+            )}
           </p>
         )}
         {blast && (
           <p className="flex flex-wrap gap-x-3 font-semibold">
             <span className="text-error">Red = the selected item</span>
-            <span className="text-orange-600">orange to yellow = affected, nearest first</span>
+            <span className="text-blast">orange to yellow = affected, nearest first</span>
             <span className="text-faint">faded = not affected</span>
           </p>
         )}
         {diff && (
           <p className="flex flex-wrap gap-x-3 font-semibold">
-            <span className="text-green-500">Green = added</span>
-            <span className="text-red-500">Red = removed</span>
-            <span className="text-orange-500">Orange = rewired</span>
+            <span className="text-ok">Green = added</span>
+            <span className="text-error">Red = removed</span>
+            <span className="text-blast">Orange = rewired</span>
           </p>
         )}
         {hasCycle && (

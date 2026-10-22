@@ -3,12 +3,13 @@
 
 /* Design tokens. Steel-grey paper, white work surfaces, ink text, one accent
    (signal teal) for actions and the current page; severity colours are only
-   used to carry meaning. */
+   used to carry meaning. Every colour is a variable, so the dark theme below
+   only redefines values. */
 @theme {
   --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-paper: #f2f4f6;
+  --color-paper: #eef1f4;
   --color-surface: #ffffff;
   --color-ink: #17212b;
   --color-muted: #5a6672;
@@ -17,7 +18,8 @@
   --color-line-soft: #e8ebef;
   --color-accent: #0b7a75;
   --color-accent-strong: #08605c;
-  --color-accent-soft: #e3f1f0;
+  --color-accent-soft: #e0f0ef;
+  --color-on-accent: #ffffff;
 
   --color-error: #b42318;
   --color-error-soft: #fdecea;
@@ -27,10 +29,164 @@
   --color-info-soft: #e8f0fa;
   --color-ok: #1f7a4a;
   --color-ok-soft: #e6f4ec;
+
+  /* Blast radius: the changed item and what it affects, nearest first. */
+  --color-blast: #c2410c;
+  --color-blast-soft: #fff1e6;
+
+  /* Code blocks (patches, previews). */
+  --color-code: #17212b;
+  --color-code-text: #d7e3ea;
+  --color-code-add: #7fd4a6;
+  --color-code-del: #f5a3a0;
+  --color-code-hunk: #8fc7f0;
+
+  --shadow-panel: 0 1px 2px rgb(16 24 40 / 0.05), 0 14px 32px -18px rgb(16 24 40 / 0.22);
 }
 
+/* Graph colours (inline SVG/React Flow styles read these). */
 :root {
   color-scheme: light;
+  --graph-grid: #d9dfe5;
+  --graph-edge: #6b7783;
+  --graph-label: #46525e;
+  --graph-node: #ffffff;
+  --graph-node-border: #b9c1ca;
+  --graph-node-text: #17212b;
+  --graph-error: #b42318;
+  --graph-error-bg: #fdecea;
+  --graph-warning: #b54708;
+  --graph-warning-bg: #fdf1e5;
+  --graph-info: #1d5fa6;
+  --graph-info-bg: #e8f0fa;
+  --graph-interfile: #0b7a75;
+  --graph-blast-source: #dc2626;
+  --graph-blast-source-bg: #fee2e2;
+  --graph-blast-1: #ea580c;
+  --graph-blast-1-bg: #ffedd5;
+  --graph-blast-2: #d97706;
+  --graph-blast-2-bg: #fef3c7;
+  --graph-blast-3: #ca8a04;
+  --graph-blast-3-bg: #fefce8;
+  --graph-added: #16a34a;
+  --graph-added-bg: #dcfce7;
+  --graph-removed: #dc2626;
+  --graph-removed-bg: #fee2e2;
+  --graph-rewired: #ea580c;
+  --graph-rewired-bg: #ffedd5;
+  --graph-highlight: rgba(11, 122, 117, 0.45);
+}
+
+/* Dark theme: the system preference unless the user picked light, or an
+   explicit choice of dark. Kept in one mixin-like block, applied twice. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --color-paper: #0e141a;
+    --color-surface: #151d25;
+    --color-ink: #e4ebf1;
+    --color-muted: #9eabb7;
+    --color-faint: #6c7a87;
+    --color-line: #29343f;
+    --color-line-soft: #1f2932;
+    --color-accent: #2fb5aa;
+    --color-accent-strong: #6fd6cc;
+    --color-accent-soft: #11302e;
+    --color-on-accent: #05211f;
+    --color-error: #f47067;
+    --color-error-soft: #3a1b18;
+    --color-warning: #e3a34a;
+    --color-warning-soft: #352510;
+    --color-info: #74b6f7;
+    --color-info-soft: #13283d;
+    --color-ok: #5cc98a;
+    --color-ok-soft: #12301f;
+    --color-blast: #f0883e;
+    --color-blast-soft: #352113;
+    --color-code: #0a0f14;
+    --graph-grid: #24303a;
+    --graph-edge: #8794a0;
+    --graph-label: #a9b6c2;
+    --graph-node: #1b252f;
+    --graph-node-border: #3a4652;
+    --graph-node-text: #e4ebf1;
+    --graph-error: #f47067;
+    --graph-error-bg: #3a1b18;
+    --graph-warning: #e3a34a;
+    --graph-warning-bg: #352510;
+    --graph-info: #74b6f7;
+    --graph-info-bg: #13283d;
+    --graph-interfile: #2fb5aa;
+    --graph-blast-source: #f47067;
+    --graph-blast-source-bg: #43201c;
+    --graph-blast-1: #f0883e;
+    --graph-blast-1-bg: #3d2614;
+    --graph-blast-2: #e3a34a;
+    --graph-blast-2-bg: #362a12;
+    --graph-blast-3: #d6b54a;
+    --graph-blast-3-bg: #302a12;
+    --graph-added: #5cc98a;
+    --graph-added-bg: #12301f;
+    --graph-removed: #f47067;
+    --graph-removed-bg: #3a1b18;
+    --graph-rewired: #f0883e;
+    --graph-rewired-bg: #3d2614;
+    --graph-highlight: rgba(47, 181, 170, 0.55);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-paper: #0e141a;
+  --color-surface: #151d25;
+  --color-ink: #e4ebf1;
+  --color-muted: #9eabb7;
+  --color-faint: #6c7a87;
+  --color-line: #29343f;
+  --color-line-soft: #1f2932;
+  --color-accent: #2fb5aa;
+  --color-accent-strong: #6fd6cc;
+  --color-accent-soft: #11302e;
+  --color-on-accent: #05211f;
+  --color-error: #f47067;
+  --color-error-soft: #3a1b18;
+  --color-warning: #e3a34a;
+  --color-warning-soft: #352510;
+  --color-info: #74b6f7;
+  --color-info-soft: #13283d;
+  --color-ok: #5cc98a;
+  --color-ok-soft: #12301f;
+  --color-blast: #f0883e;
+  --color-blast-soft: #352113;
+  --color-code: #0a0f14;
+  --graph-grid: #24303a;
+  --graph-edge: #8794a0;
+  --graph-label: #a9b6c2;
+  --graph-node: #1b252f;
+  --graph-node-border: #3a4652;
+  --graph-node-text: #e4ebf1;
+  --graph-error: #f47067;
+  --graph-error-bg: #3a1b18;
+  --graph-warning: #e3a34a;
+  --graph-warning-bg: #352510;
+  --graph-info: #74b6f7;
+  --graph-info-bg: #13283d;
+  --graph-interfile: #2fb5aa;
+  --graph-blast-source: #f47067;
+  --graph-blast-source-bg: #43201c;
+  --graph-blast-1: #f0883e;
+  --graph-blast-1-bg: #3d2614;
+  --graph-blast-2: #e3a34a;
+  --graph-blast-2-bg: #362a12;
+  --graph-blast-3: #d6b54a;
+  --graph-blast-3-bg: #302a12;
+  --graph-added: #5cc98a;
+  --graph-added-bg: #12301f;
+  --graph-removed: #f47067;
+  --graph-removed-bg: #3a1b18;
+  --graph-rewired: #f0883e;
+  --graph-rewired-bg: #3d2614;
+  --graph-highlight: rgba(47, 181, 170, 0.55);
 }
 
 body {
@@ -52,6 +208,35 @@ body {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* The start panel's drawing: the one animated moment, drawn once on load. */
+@keyframes draw-edge {
+  from {
+    stroke-dashoffset: 120;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pop-node {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hero-edge {
+  stroke-dasharray: 120;
+  animation: draw-edge 0.9s ease-out both;
+}
+.hero-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pop-node 0.4s ease-out both;
 }
 
 /* The dependency graph is read-only, so React Flow's connection handles are hidden. */
@@ -78,7 +263,13 @@ body {
   color: var(--color-accent) !important;
 }
 
-/* Edge labels sit on the paper, not in a white box. */
 .react-flow__edge-textbg {
   fill: var(--color-surface);
+}
+
+.react-flow__attribution {
+  background: transparent !important;
+}
+.react-flow__attribution a {
+  color: var(--color-faint) !important;
 }

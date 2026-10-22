@@ -10,10 +10,28 @@ const SEVERITY_LABEL: Record<Severity, string> = {
   info: 'Suggestion',
 };
 
-const SEVERITY_STYLE: Record<Severity, { bar: string; text: string }> = {
-  error: { bar: 'bg-error', text: 'text-error' },
-  warning: { bar: 'bg-warning', text: 'text-warning' },
-  info: { bar: 'bg-info', text: 'text-info' },
+const SEVERITY_STYLE: Record<
+  Severity,
+  { bar: string; text: string; pill: string; active: string }
+> = {
+  error: {
+    bar: 'bg-error',
+    text: 'text-error',
+    pill: 'bg-error-soft text-error',
+    active: 'border-error bg-error text-surface',
+  },
+  warning: {
+    bar: 'bg-warning',
+    text: 'text-warning',
+    pill: 'bg-warning-soft text-warning',
+    active: 'border-warning bg-warning text-surface',
+  },
+  info: {
+    bar: 'bg-info',
+    text: 'text-info',
+    pill: 'bg-info-soft text-info',
+    active: 'border-info bg-info text-surface',
+  },
 };
 
 const FILTER_LABEL: Record<Severity, string> = {
@@ -45,8 +63,8 @@ export default function IssuesList({ result, activeDiagnostic, onSelect, onShowI
       <div className="px-1 py-6">
         <p className="font-medium text-ink">No issues found.</p>
         <p className="mt-1 text-sm text-muted">
-          Nothing in this configuration breaks a check. The graph tab shows how its parts depend
-          on each other.
+          Nothing in this configuration breaks a check. The graph tab shows how its parts depend on
+          each other.
         </p>
       </div>
     );
@@ -70,12 +88,14 @@ export default function IssuesList({ result, activeDiagnostic, onSelect, onShowI
                 onClick={() => setFilter(key)}
                 className={`rounded-full border px-3 py-1 text-sm ${
                   active
-                    ? 'border-ink bg-ink text-white'
+                    ? key === 'all'
+                      ? 'border-ink bg-ink text-surface'
+                      : SEVERITY_STYLE[key].active
                     : 'border-line bg-surface text-muted hover:border-faint hover:text-ink'
                 }`}
               >
                 {key === 'all' ? 'All' : FILTER_LABEL[key]}{' '}
-                <span className={active ? 'text-white/70' : 'text-faint'}>
+                <span className={active ? 'opacity-70' : 'text-faint'}>
                   {key === 'all' ? result.diagnostics.length : counts[key]}
                 </span>
               </button>
@@ -84,7 +104,10 @@ export default function IssuesList({ result, activeDiagnostic, onSelect, onShowI
         </div>
       )}
 
-      <ul aria-label="Issues" className="divide-y divide-line-soft overflow-hidden rounded-lg border border-line bg-surface">
+      <ul
+        aria-label="Issues"
+        className="divide-y divide-line-soft overflow-hidden rounded-lg border border-line bg-surface shadow-panel"
+      >
         {shown.map(({ d, index }) => {
           const style = SEVERITY_STYLE[d.severity];
           const where = formatLocation(d.source_location);
@@ -102,7 +125,11 @@ export default function IssuesList({ result, activeDiagnostic, onSelect, onShowI
                 onClick={() => onSelect(index)}
                 className="block w-full py-3 pr-28 pl-5 text-left hover:bg-paper/60"
               >
-                <span className={`text-xs font-semibold ${style.text}`}>{SEVERITY_LABEL[d.severity]}</span>
+                <span
+                  className={`inline-block rounded px-1.5 py-px text-xs font-semibold ${style.pill}`}
+                >
+                  {SEVERITY_LABEL[d.severity]}
+                </span>
                 <span className="mt-0.5 block text-[15px] leading-snug text-ink">{text}</span>
                 <span className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted">
                   <span className="font-mono" title={rule ? d.code : undefined}>
@@ -145,7 +172,7 @@ export default function IssuesList({ result, activeDiagnostic, onSelect, onShowI
                               r.proposed_change.preview !== null && (
                                 <pre
                                   aria-label="Preview"
-                                  className="mt-2 overflow-x-auto rounded-md bg-ink p-2.5 font-mono text-xs text-[#cfe9e7]"
+                                  className="mt-2 overflow-x-auto rounded-md bg-code p-2.5 font-mono text-xs text-code-text"
                                 >
                                   {r.proposed_change.preview}
                                 </pre>

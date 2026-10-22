@@ -20,7 +20,14 @@ interface Props {
 }
 
 /** "Click a node, see what breaks": everything downstream of the node. */
-export default function BlastRadiusPanel({ result, node, blast, shown, onToggle, onSelectNode }: Props) {
+export default function BlastRadiusPanel({
+  result,
+  node,
+  blast,
+  shown,
+  onToggle,
+  onSelectNode,
+}: Props) {
   const byDepth = new Map<number, typeof blast.affected>();
   for (const item of blast.affected) {
     byDepth.set(item.depth, [...(byDepth.get(item.depth) ?? []), item]);
@@ -29,14 +36,17 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
   const total = blast.affected.length;
 
   return (
-    <section aria-label="Blast radius" className="mt-3 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+    <section
+      aria-label="Blast radius"
+      className="mt-3 rounded-lg border border-blast/30 bg-blast-soft p-3"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-semibold text-ink">Blast radius</div>
         {total > 0 && (
           <button
             type="button"
             onClick={onToggle}
-            className="rounded border border-orange-300 bg-surface px-2 py-0.5 text-xs font-medium text-orange-800 hover:bg-orange-100"
+            className="rounded border border-blast/40 bg-surface px-2 py-0.5 text-xs font-medium text-blast hover:bg-blast-soft"
           >
             {shown ? 'Hide on graph' : 'Show on graph'}
           </button>
@@ -45,8 +55,8 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
 
       {total === 0 ? (
         <p className="mt-1 text-xs text-muted">
-          Nothing in this graph depends on {node.label}, so changing or removing it affects
-          nothing else here.
+          Nothing in this graph depends on {node.label}, so changing or removing it affects nothing
+          else here.
         </p>
       ) : (
         <>
@@ -56,11 +66,12 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
               {total} {total === 1 ? 'item' : 'items'}
             </span>
             : {direct} directly
-            {total > direct ? `, ${total - direct} through other items` : ''} ({DEPENDENTS[result.format]}).
+            {total > direct ? `, ${total - direct} through other items` : ''} (
+            {DEPENDENTS[result.format]}).
           </p>
           {[...byDepth].map(([depth, items]) => (
             <div key={depth} className="mt-2">
-              <div className="text-[11px] font-semibold text-orange-800">
+              <div className="text-[11px] font-semibold text-blast">
                 {depth === 1 ? 'Directly' : `${depth} steps away`} ({items.length})
               </div>
               <ul className="mt-0.5 space-y-0.5 text-xs">

@@ -108,7 +108,7 @@ export default function HowItWorksPage() {
         </p>
         <a
           href={HREF.analyze}
-          className="mt-4 inline-block rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong"
+          className="mt-4 inline-block rounded-md bg-accent px-4 py-2 text-sm font-semibold text-on-accent hover:bg-accent-strong"
         >
           Analyze a configuration
         </a>

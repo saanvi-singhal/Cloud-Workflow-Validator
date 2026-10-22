@@ -32,7 +32,7 @@ Three pages, linked from the top bar. They use hash URLs (`#/analyze`, `#/compar
   - **Graph:** the dependency graph (React Flow, Dagre layout).
     - Arrows point from a prerequisite to the item that depends on it.
     - Boxes are coloured by their most severe issue, and cycle edges are red and animated.
-    - Clicking a box shows its details, including its **blast radius**: everything that depends on it, grouped by distance. "Show on graph" colours the affected items. `blastRadius.ts` walks the documented edge direction breadth-first, like the backend's `descendants`.
+    - Clicking a box shows its details, including its **blast radius**: everything that depends on it, grouped by distance, coloured on the graph straight away ("Hide on graph" turns that off). `blastRadius.ts` walks the documented edge direction breadth-first, like the backend's `descendants`.
   - **Files** (several files only): each file and what it was analysed as, the dependencies between files, and the Terraform variables table.
   - **Build advisor** (Dockerfiles only): the layer and cache findings, grouped as cache order, image size and multi-stage builds.
 - **Before analysing:** the results panel offers examples that load and analyse in one click.
@@ -42,6 +42,8 @@ Three pages, linked from the top bar. They use hash URLs (`#/analyze`, `#/compar
 **How it works** (`src/pages/HowItWorksPage.tsx`): the pipeline, what each format is checked for, and what the tool never does.
 
 Cycles, validity, order and diagnostics come from the backend response. The UI only follows edges in their documented direction (blast radius, diff); it does not re-analyse.
+
+**Light and dark themes:** the switch in the top bar follows the system setting until you choose, and the choice is remembered (`useTheme.ts`; `index.html` applies it before the first paint). Graph colours are CSS variables too, so the graph, blast radius and diff colours follow the theme.
 
 **Design tokens** live in `src/index.css` (`@theme`):
 
