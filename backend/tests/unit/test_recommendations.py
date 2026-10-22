@@ -39,7 +39,7 @@ def test_no_recommendation_claims_a_deterministic_fix_in_v1():
             assert rec.fix_kind is FixKind.judgment
 
 
-def test_cycle_recommendation_lists_edges_and_related_nodes():
+def test_cycle_recommendation_names_the_minimum_removal():
     result = analyse_fixture("cyclic.tf")
     cycle, self_loop = result.recommendations
     assert cycle.rule_id == "BREAK_DEPENDENCY_CYCLE"
@@ -47,19 +47,29 @@ def test_cycle_recommendation_lists_edges_and_related_nodes():
         "tf:resource:aws_security_group.app",
         "tf:resource:aws_security_group.db",
     ]
-    assert "via 'egress.security_groups'" in cycle.explanation
+    # Two references form the cycle; removing either one breaks it.
+    assert cycle.title == "Remove dependency to break the cycle"
+    assert cycle.explanation.count(" depends on ") == 1
+    assert "via '" in cycle.explanation
+    # References pass values, so no patch can simply delete one.
+    assert cycle.proposed_change.patch is None
     assert "self-dependency" in self_loop.title
 
 
-def test_cycle_recommendation_names_explicit_depends_on_first():
+def test_cycle_recommendation_prefers_removing_depends_on():
     source = (
         'resource "aws_vpc" "a" {\n  depends_on = [aws_vpc.b]\n}\n'
         'resource "aws_vpc" "b" {\n  tags = { a = aws_vpc.a.id }\n}\n'
     )
-    (rec,) = compile_source(source, SourceFormat.terraform).recommendations
-    first_step = rec.explanation.split("dependencies: ")[1].split(";")[0]
-    assert "via 'depends_on'" in first_step
-    assert "Explicit depends_on" in rec.explanation
+    (rec,) = compile_source(source, SourceFormat.terraform, "main.tf").recommendations
+    # The explicit entry (cost 1) is cheaper than the reference (cost 3).
+    assert "via 'depends_on'" in rec.explanation
+    assert "explicit entries" in rec.explanation
+    assert rec.proposed_change.patch == (
+        "--- a/main.tf\n+++ b/main.tf\n@@ -1,5 +1,5 @@\n"
+        ' resource "aws_vpc" "a" {\n-  depends_on = [aws_vpc.b]\n+  depends_on = []\n'
+        ' }\n resource "aws_vpc" "b" {\n   tags = { a = aws_vpc.a.id }\n'
+    )
 
 
 def test_typo_gets_did_you_mean_with_preview():

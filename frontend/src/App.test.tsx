@@ -330,3 +330,21 @@ describe('graph diff', () => {
     expect(screen.getByText('New version graph')).toBeTruthy();
   });
 });
+
+describe('fix patches', () => {
+  it('shows a patch with copy and download instead of the preview', async () => {
+    const user = userEvent.setup();
+    stubFetch(ok(terraformMock));
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+
+    const patch = await screen.findByLabelText('Patch');
+    expect(patch.textContent).toContain('--- a/main.tf');
+    expect(patch.textContent).toContain('-  tags   = { vpc = aws_vpc.mian.id }');
+    expect(patch.textContent).toContain('+  tags   = { vpc = aws_vpc.main.id }');
+    expect(screen.getByRole('button', { name: 'Copy patch' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Download .patch' })).toBeTruthy();
+  });
+});

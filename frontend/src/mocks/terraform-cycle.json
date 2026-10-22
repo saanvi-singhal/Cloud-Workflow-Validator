@@ -188,21 +188,22 @@
     {
       "id": "BREAK_DEPENDENCY_CYCLE:0",
       "rule_id": "BREAK_DEPENDENCY_CYCLE",
-      "title": "Break the dependency cycle",
-      "explanation": "No valid execution order exists while this cycle remains. Break it by removing or inverting one of these dependencies: 'aws_security_group.db' depends on 'aws_security_group.app' (via 'ingress.security_groups'); 'aws_security_group.app' depends on 'aws_security_group.db' (via 'egress.security_groups').",
+      "title": "Remove dependency to break the cycle",
+      "explanation": "No valid execution order exists while this cycle remains. The smallest change that breaks it removes this: 'aws_security_group.db' depends on 'aws_security_group.app' (via 'ingress.security_groups'). A reference passes a value, so removing it means getting that value another way (or inverting the dependency).",
       "diagnostic_code": "DEPENDENCY_CYCLE",
       "diagnostic_index": 0,
       "fix_kind": "judgment",
       "proposed_change": {
-        "description": "Remove one dependency on the cycle; which one depends on your intent, so this is not done automatically.",
-        "preview": null,
+        "description": "Minimum edge removal: 'aws_security_group.db' depends on 'aws_security_group.app' (via 'ingress.security_groups'). Check that the order is not needed before applying.",
+        "preview": "- 'aws_security_group.db' depends on 'aws_security_group.app' (via 'ingress.security_groups')",
         "source_location": {
           "file": "cyclic.tf",
           "start_line": 9,
           "start_column": 24,
           "end_line": 9,
           "end_column": 48
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "cyclic.tf",
@@ -233,7 +234,8 @@
           "start_column": 20,
           "end_line": 25,
           "end_column": 41
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "cyclic.tf",

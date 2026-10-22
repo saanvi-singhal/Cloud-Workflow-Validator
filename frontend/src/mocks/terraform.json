@@ -113,7 +113,8 @@
           "start_column": 20,
           "end_line": 7,
           "end_column": 35
-        }
+        },
+        "patch": "--- a/main.tf\n+++ b/main.tf\n@@ -4,5 +4,5 @@\n \n resource \"aws_subnet\" \"app\" {\n   vpc_id = aws_vpc.main.id\n-  tags   = { vpc = aws_vpc.mian.id }\n+  tags   = { vpc = aws_vpc.main.id }\n }\n"
       },
       "source_location": {
         "file": "main.tf",

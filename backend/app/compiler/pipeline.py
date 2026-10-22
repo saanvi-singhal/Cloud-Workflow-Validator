@@ -98,11 +98,21 @@ def _analyze(parse: ParseResult, fmt: SourceFormat) -> _Analysis:
     return _Analysis(findings, clean_ir, order)
 
 
+# Name used in patch headers when a single file was sent without a filename.
+DEFAULT_FILENAME: dict[SourceFormat, str] = {
+    SourceFormat.terraform: "main.tf",
+    SourceFormat.yaml: "workflow.yml",
+    SourceFormat.dockerfile: "Dockerfile",
+    SourceFormat.mixed: "source",
+}
+
+
 def _result(
     analysis: _Analysis,
     fmt: SourceFormat,
     file_list: list[str] | None,
     file_formats: dict[str, str] | None = None,
+    sources: dict[str | None, str] | None = None,
 ) -> AnalysisResult:
     ordered = sort_findings(analysis.findings)
     diagnostics = [f.diagnostic for f in ordered]
@@ -121,7 +131,9 @@ def _result(
         diagnostics=diagnostics,
         graph=analysis.ir.to_payload() if analysis.ir is not None else GraphPayload(),
         execution_order=analysis.order,
-        recommendations=generate_recommendations(ordered, analysis.ir),
+        recommendations=generate_recommendations(
+            ordered, analysis.ir, sources, DEFAULT_FILENAME[fmt]
+        ),
         multifile=multifile_summary,
     )
 
@@ -130,9 +142,13 @@ def analyze_ir(
     parse: ParseResult,
     fmt: SourceFormat,
     file_list: list[str] | None = None,
+    sources: dict[str | None, str] | None = None,
 ) -> AnalysisResult:
-    """Run every analysis pass over a parser's output."""
-    return _result(_analyze(parse, fmt), fmt, file_list)
+    """Run every analysis pass over a parser's output.
+
+    ``sources`` (file name -> text) lets recommendations carry patches.
+    """
+    return _result(_analyze(parse, fmt), fmt, file_list, sources=sources)
 
 
 def compile_source(
@@ -148,7 +164,7 @@ def compile_source(
     Raises ``AdapterNotAvailableError`` if no parser exists for ``fmt``.
     """
     chosen = adapter if adapter is not None else get_adapter(fmt)
-    return analyze_ir(chosen.parse(source, filename), fmt)
+    return analyze_ir(chosen.parse(source, filename), fmt, sources={filename: source})
 
 
 def _parse_files(adapter: SourceAdapter, files: list[tuple[str, str]]) -> ParseResult:
@@ -176,7 +192,9 @@ def compile_files(
         return compile_mixed(files)
     chosen = adapter if adapter is not None else get_adapter(fmt)
     file_list = [filename for filename, _ in files]
-    return analyze_ir(_parse_files(chosen, files), fmt, file_list=file_list)
+    return analyze_ir(
+        _parse_files(chosen, files), fmt, file_list=file_list, sources=dict(files)
+    )
 
 
 # Analysis order of the groups (the graph output is sorted by node ID).
@@ -252,4 +270,5 @@ def compile_mixed(files: list[tuple[str, str]]) -> AnalysisResult:
         SourceFormat.mixed,
         [name for name, _ in files],
         file_formats,
+        dict(files),
     )

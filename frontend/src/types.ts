@@ -46,6 +46,8 @@ export interface ProposedChange {
   description: string;
   preview: string | null;
   source_location: SourceLocation | null;
+  /** Unified diff the user can apply with `git apply`; the tool never applies it. */
+  patch?: string | null;
 }
 
 export interface Recommendation {

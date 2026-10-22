@@ -13,6 +13,7 @@ import DependencyGraph from './components/DependencyGraph';
 import NodeDetails from './components/NodeDetails';
 import MultiFilePanel from './components/MultiFilePanel';
 import CompareView from './components/CompareView';
+import PatchBlock from './components/PatchBlock';
 import terraformSample from './samples/main.tf?raw';
 import dockerfileSample from './samples/Dockerfile?raw';
 import yamlSample from './samples/ci.yml?raw';
@@ -805,10 +806,14 @@ export default function App() {
                         <span className="font-semibold text-white">Suggested change:</span>{' '}
                         {r.proposed_change.description}
                       </div>
-                      {r.proposed_change.preview !== null && (
-                        <pre className="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-2.5 font-mono text-xs text-emerald-400">
-                          {r.proposed_change.preview}
-                        </pre>
+                      {r.proposed_change.patch ? (
+                        <PatchBlock patch={r.proposed_change.patch} id={r.id} />
+                      ) : (
+                        r.proposed_change.preview !== null && (
+                          <pre className="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-2.5 font-mono text-xs text-emerald-400">
+                            {r.proposed_change.preview}
+                          </pre>
+                        )
                       )}
                     </div>
                   )}

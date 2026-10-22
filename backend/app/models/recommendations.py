@@ -29,6 +29,10 @@ class ProposedChange(BaseModel):
     description: str
     preview: str | None = None  # unified-diff-style snippet; omitted if unsafe
     source_location: SourceLocation | None = None
+    # A complete unified diff against the submitted file (git apply / patch
+    # -p1), only when the exact edit is certain. The user applies it; this
+    # project never does.
+    patch: str | None = None
 
 
 class Recommendation(BaseModel):

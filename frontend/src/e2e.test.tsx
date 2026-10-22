@@ -142,7 +142,15 @@ describe.skipIf(!enabled)('frontend shows the backend result for every sample in
     expect(fixes).toHaveLength(result.recommendations.length);
     result.recommendations.forEach((r, i) => {
       expect(fixes[i].textContent).toContain(r.title);
-      if (r.proposed_change?.preview) {
+      // A patch replaces the preview; each patch line is its own row.
+      if (r.proposed_change?.patch) {
+        expect(within(fixes[i]).getByLabelText('Patch').textContent).toBe(
+          r.proposed_change.patch
+            .split('\n')
+            .map(line => line || '\u00a0')
+            .join(''),
+        );
+      } else if (r.proposed_change?.preview) {
         expect(fixes[i].querySelector('pre')?.textContent).toBe(r.proposed_change.preview);
       }
     });

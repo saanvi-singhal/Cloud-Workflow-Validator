@@ -187,7 +187,8 @@
           "start_column": 1,
           "end_line": 1,
           "end_column": null
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "Dockerfile",
@@ -217,7 +218,8 @@
           "start_column": 1,
           "end_line": 5,
           "end_column": null
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "Dockerfile",
@@ -247,7 +249,8 @@
           "start_column": 1,
           "end_line": 5,
           "end_column": null
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "Dockerfile",
@@ -277,7 +280,8 @@
           "start_column": 15,
           "end_line": 16,
           "end_column": 47
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "ci.yml",
@@ -307,7 +311,8 @@
           "start_column": 1,
           "end_line": 3,
           "end_column": null
-        }
+        },
+        "patch": null
       },
       "source_location": {
         "file": "install-tools.sh",

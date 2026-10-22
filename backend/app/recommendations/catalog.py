@@ -23,13 +23,13 @@ from app.compiler.findings import EdgeKey, Finding
 from app.models import (
     DiagnosticCode,
     Edge,
-    EdgeType,
     FixKind,
     Node,
     ProposedChange,
     Recommendation,
     Severity,
 )
+from app.recommendations.patches import REMOVABLE_EDGES, cycle_removal
 
 
 @dataclass(frozen=True)
@@ -92,39 +92,46 @@ def break_dependency_cycle(
             ),
         )
 
-    steps: list[str] = []
-    explicit: list[str] = []
-    for key in finding.edge_keys:
-        edge = ctx.edges.get(key)
-        source, target = ctx.label(key[0]), ctx.label(key[1])
-        via = f" (via '{edge.label}')" if edge is not None and edge.label else ""
-        step = f"'{target}' depends on '{source}'{via}"
-        if key[2] == EdgeType.terraform_explicit_dependency.value:
-            explicit.append(step)
-        else:
-            steps.append(step)
+    # Minimum edge removal (feedback_arcs.py): the cheapest set of edges that
+    # leaves the whole cyclic component acyclic. Explicit entries (depends_on,
+    # needs) are cheaper to drop than attribute references.
+    removal = cycle_removal(finding, ctx.edges)
 
-    candidates = explicit + steps  # explicit depends_on entries are named first
+    def describe(key: EdgeKey) -> str:
+        edge = ctx.edges.get(key)
+        via = f" (via '{edge.label}')" if edge is not None and edge.label else ""
+        return f"'{ctx.label(key[1])}' depends on '{ctx.label(key[0])}'{via}"
+
+    count = len(removal)
+    noun = "dependency" if count == 1 else f"{count} dependencies"
+    removable = all(key[2] in REMOVABLE_EDGES for key in removal)
     explanation = (
-        "No valid execution order exists while this cycle remains. Break it by "
-        "removing or inverting one of these dependencies: "
-        + "; ".join(candidates)
+        "No valid execution order exists while this cycle remains. The smallest "
+        f"change that breaks it removes {'this' if count == 1 else 'these'}: "
+        + "; ".join(describe(k) for k in removal)
         + "."
     )
-    if explicit:
+    if removable:
         explanation += (
-            " Explicit depends_on entries are often the easiest to drop if "
-            "they are not strictly required."
+            " They are explicit entries, which only order the steps, so dropping "
+            "them is the least disruptive fix if they are not strictly required."
+        )
+    else:
+        explanation += (
+            " A reference passes a value, so removing it means getting that value "
+            "another way (or inverting the dependency)."
         )
     return _make(
         "BREAK_DEPENDENCY_CYCLE",
         finding,
         index,
-        "Break the dependency cycle",
+        f"Remove {noun} to break the cycle",
         explanation,
         ProposedChange(
-            description="Remove one dependency on the cycle; which one depends "
-            "on your intent, so this is not done automatically.",
+            description="Minimum edge removal: "
+            + "; ".join(describe(k) for k in removal)
+            + ". Check that the order is not needed before applying.",
+            preview="\n".join(f"- {describe(k)}" for k in removal),
             source_location=finding.diagnostic.source_location,
         ),
     )
