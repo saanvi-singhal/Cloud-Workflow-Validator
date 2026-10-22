@@ -156,19 +156,28 @@ describe('submitting a configuration', () => {
     expect(screen.getByText(/Paste a configuration, upload files or try a sample first/)).toBeTruthy();
   });
 
-  it('clears the current file', async () => {
+  it('Clear returns the page to its first-load state', async () => {
     const user = userEvent.setup();
+    stubFetch(ok(mixedMock));
     render(<App />);
 
     const clearBtn = screen.getByRole('button', { name: 'Clear' }) as HTMLButtonElement;
     expect(clearBtn.disabled).toBe(true);
+
+    // Several files, another format, and a result on screen.
+    await user.click(formatRadio('Mixed'));
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze 4 files' }));
+    await screen.findByRole('list', { name: 'Issues' });
     expect(clearBtn.disabled).toBe(false);
 
-    const textarea = screen.getByLabelText('Configuration source') as HTMLTextAreaElement;
-    expect(textarea.value).not.toBe('');
     await user.click(clearBtn);
-    expect(textarea.value).toBe('');
+    expect(formatRadio('Terraform').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('untitled')).toBeTruthy();
+    expect(screen.queryByText('ci.yml')).toBeNull();
+    expect((screen.getByLabelText('Configuration source') as HTMLTextAreaElement).value).toBe('');
+    expect(screen.queryByRole('list', { name: 'Issues' })).toBeNull();
+    expect(screen.getByRole('heading', { name: "Find out whether it's safe to deploy" })).toBeTruthy();
     expect(clearBtn.disabled).toBe(true);
   });
 

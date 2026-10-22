@@ -91,9 +91,30 @@ export default function AnalyzePage() {
   const activeFile = files.find(f => f.id === activeFileId) ?? files[0];
   const code = activeFile?.content ?? '';
   const isMultiFile = files.length > 1;
+  const atStart =
+    language === 'terraform' &&
+    files.length === 1 &&
+    !files[0].name &&
+    !files[0].content &&
+    result === null &&
+    !error &&
+    !note;
 
   function updateActiveFileContent(newContent: string) {
     setFiles(prev => prev.map(f => (f.id === activeFileId ? { ...f, content: newContent } : f)));
+  }
+
+  // Clear: back to exactly how the page first loads.
+  function resetAll() {
+    setLanguage('terraform');
+    setFiles([{ id: '1', name: '', content: '' }]);
+    setActiveFileId('1');
+    setNote('');
+    setRenamingId(null);
+    setTab('issues');
+    setShowBlast(true);
+    resetResult();
+    textareaRef.current?.focus();
   }
 
   function resetResult() {
@@ -446,12 +467,9 @@ export default function AnalyzePage() {
             )}
             <button
               type="button"
-              onClick={() => {
-                updateActiveFileContent('');
-                setError('');
-                textareaRef.current?.focus();
-              }}
-              disabled={!code}
+              onClick={resetAll}
+              disabled={atStart}
+              title="Start again: one empty file, no results"
               className="ml-auto rounded-md px-3 py-2 text-sm text-muted hover:text-error disabled:opacity-40"
             >
               Clear
