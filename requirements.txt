@@ -1,0 +1,10 @@
+# Core Web Framework and Validation
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.30.0,<1.0.0
+pydantic>=2.8.0,<3.0.0
+
+# Parsers for Workflow, Container, and Infrastructure-as-Code Specs
+ruamel.yaml>=0.18.0,<0.20.0
+dockerfile-parse>=2.0.0,<3.0.0
+python-hcl2>=8.1.0,<9.0.0
+lark>=1.1.0,<2.0.0

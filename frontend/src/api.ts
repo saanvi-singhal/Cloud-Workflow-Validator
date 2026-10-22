@@ -14,7 +14,7 @@ const MOCKS: Record<SourceFormat, AnalysisResult> = {
 };
 
 // Local development default; deployments set VITE_API_BASE_URL (empty = same origin).
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.PROD ? '' : 'http://localhost:8000')).replace(
   /\/+$/,
   '',
 );

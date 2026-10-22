@@ -49,7 +49,7 @@ EXPECTED = {
 
 def test_every_example_is_listed():
     found = sorted(
-        str(path.relative_to(EXAMPLES))
+        path.relative_to(EXAMPLES).as_posix()
         for folder in FORMATS
         for path in (EXAMPLES / folder).iterdir()
     )
