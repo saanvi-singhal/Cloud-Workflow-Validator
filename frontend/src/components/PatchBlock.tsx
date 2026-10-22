@@ -32,21 +32,21 @@ export default function PatchBlock({ patch, id }: Props) {
   return (
     <div className="mt-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-slate-700">
+        <span className="text-xs font-semibold text-muted">
           Patch (apply with git apply)
         </span>
         <span className="flex gap-2">
           <button
             type="button"
             onClick={copy}
-            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-50"
+            className="rounded border border-line bg-surface px-2 py-0.5 text-xs text-accent-strong hover:bg-accent-soft"
           >
             {copied ? 'Copied' : 'Copy patch'}
           </button>
           <button
             type="button"
             onClick={download}
-            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-50"
+            className="rounded border border-line bg-surface px-2 py-0.5 text-xs text-accent-strong hover:bg-accent-soft"
           >
             Download .patch
           </button>
@@ -54,7 +54,7 @@ export default function PatchBlock({ patch, id }: Props) {
       </div>
       <pre
         aria-label="Patch"
-        className="mt-1.5 overflow-x-auto rounded-lg bg-slate-900 p-2.5 font-mono text-xs leading-relaxed"
+        className="mt-1.5 overflow-x-auto rounded-md bg-ink p-2.5 font-mono text-xs leading-relaxed"
       >
         {patch.split('\n').map((line, i) => (
           <div
@@ -65,8 +65,8 @@ export default function PatchBlock({ patch, id }: Props) {
                 : line.startsWith('-') && !line.startsWith('---')
                   ? 'text-red-300'
                   : line.startsWith('@@')
-                    ? 'text-sky-300'
-                    : 'text-slate-400'
+                    ? 'text-[#8fc7f0]'
+                    : 'text-faint'
             }
           >
             {line || '\u00a0'}

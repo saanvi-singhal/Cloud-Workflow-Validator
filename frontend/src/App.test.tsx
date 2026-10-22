@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-// UI tests (spec 9.1): format selection and submission, diagnostic display,
-// graph integration and API error states. fetch is stubbed with real backend
-// output (the mocks are generated from the backend, see scripts/generate_mocks.py).
+// UI tests (spec 9.1): navigation, format selection and submission, the
+// verdict, issues with their fixes, graph integration and API error states.
+// fetch is stubbed with real backend output (the mocks are generated from the
+// backend, see scripts/generate_mocks.py).
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -21,11 +22,14 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
+  // jsdom has no scrolling; the router scrolls to the top on page change.
+  window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.location.hash = '';
 });
 
 function stubFetch(response: Partial<Response> | Error) {
@@ -43,14 +47,58 @@ const ok = (body: unknown): Partial<Response> => ({
   json: async () => body,
 });
 
+const analyzeButton = () => screen.getByRole('button', { name: 'Analyze' });
+const formatRadio = (name: string) =>
+  within(screen.getByRole('radiogroup', { name: 'Input format' })).getByRole('radio', { name });
+
+/** The issue row whose text matches, as a scope for queries. */
+function issue(text: RegExp | string) {
+  const list = screen.getByRole('list', { name: 'Issues' });
+  const row = within(list)
+    .getAllByRole('listitem')
+    .find(li => (typeof text === 'string' ? li.textContent?.includes(text) : text.test(li.textContent ?? '')));
+  if (!row) throw new Error(`no issue matching ${text}`);
+  return within(row);
+}
+
+describe('navigation', () => {
+  it('switches pages from the top bar and marks the current one', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'Analyze' }).getAttribute('aria-current')).toBe('page');
+
+    await user.click(within(nav).getByRole('link', { name: 'How it works' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'How it works' })).toBeTruthy();
+    expect(within(nav).getByRole('link', { name: 'How it works' }).getAttribute('aria-current')).toBe('page');
+
+    await user.click(within(nav).getByRole('link', { name: 'Compare versions' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Compare versions' })).toBeTruthy();
+  });
+
+  it('keeps the input and result when you leave the Analyze page and come back', async () => {
+    const user = userEvent.setup();
+    stubFetch(ok(terraformMock));
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(analyzeButton());
+    await screen.findByText('Not ready to deploy');
+
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    await user.click(within(nav).getByRole('link', { name: 'How it works' }));
+    await user.click(within(nav).getByRole('link', { name: 'Analyze' }));
+    expect(await screen.findByText('Not ready to deploy')).toBeTruthy();
+  });
+});
+
 describe('submitting a configuration', () => {
-  it('sends the chosen format and source, then shows status, diagnostics and fixes', async () => {
+  it('sends the chosen format and source, then shows the verdict and issues with fixes', async () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch(ok(terraformMock));
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -59,23 +107,42 @@ describe('submitting a configuration', () => {
     expect(body.format).toBe('terraform');
     expect(body.source).toContain('aws_vpc.mian');
 
-    expect(await screen.findByText('Invalid')).toBeTruthy();
-    expect(screen.getByText(/ERROR · UNRESOLVED_DEPENDENCY/)).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 2, name: 'Suggested fixes' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Not ready to deploy' })).toBeTruthy();
+    expect(screen.getByText('1 error to fix.')).toBeTruthy();
+    const row = issue('UNRESOLVED_DEPENDENCY');
+    expect(row.getByText('Error')).toBeTruthy();
+    expect(row.getByText(/Fix: Did you mean 'aws_vpc.main'\?/)).toBeTruthy();
   });
 
-  it('sends the format picked in the selector', async () => {
+  it('sends the format picked in the format switch', async () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch(ok(dockerfileMock));
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText('Input format'), 'dockerfile');
+    await user.click(formatRadio('Dockerfile'));
+    expect(formatRadio('Dockerfile').getAttribute('aria-checked')).toBe('true');
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
 
     const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
     expect(JSON.parse(String(init.body)).format).toBe('dockerfile');
-    expect(await screen.findByText('Valid with warnings')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Ready, with warnings to review' })).toBeTruthy();
+  });
+
+  it('filters issues by severity', async () => {
+    const user = userEvent.setup();
+    stubFetch(ok(mixedMock)); // warnings and suggestions
+    render(<App />);
+    await user.click(formatRadio('Mixed'));
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze 4 files' }));
+    await screen.findByRole('list', { name: 'Issues' });
+
+    const all = within(screen.getByRole('list', { name: 'Issues' })).getAllByRole('listitem').length;
+    await user.click(screen.getByRole('button', { name: /^Warnings/ }));
+    const warnings = within(screen.getByRole('list', { name: 'Issues' })).getAllByRole('listitem');
+    expect(warnings.length).toBeLessThan(all);
+    expect(warnings.every(li => li.textContent?.startsWith('Warning'))).toBe(true);
   });
 
   it('asks for input instead of calling the API when the editor is empty', async () => {
@@ -83,28 +150,40 @@ describe('submitting a configuration', () => {
     const fetchMock = stubFetch(ok(terraformMock));
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/Please paste some code/)).toBeTruthy();
+    expect(screen.getByText(/Paste a configuration, upload files or try a sample first/)).toBeTruthy();
   });
 
-  it('clears current input when the clear input button is clicked', async () => {
+  it('clears the current file', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const clearBtn = screen.getByRole('button', { name: 'Clear input' }) as HTMLButtonElement;
+    const clearBtn = screen.getByRole('button', { name: 'Clear' }) as HTMLButtonElement;
     expect(clearBtn.disabled).toBe(true);
-
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
     expect(clearBtn.disabled).toBe(false);
 
-    const textarea = screen.getByPlaceholderText(/Paste your terraform code here/) as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText('Configuration source') as HTMLTextAreaElement;
     expect(textarea.value).not.toBe('');
-
     await user.click(clearBtn);
     expect(textarea.value).toBe('');
     expect(clearBtn.disabled).toBe(true);
+  });
+
+  it('runs an example straight from the start panel', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(ok(yamlMock));
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: /A GitHub Actions workflow/ }));
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(String(init.body)).format).toBe('yaml');
+    expect(await screen.findByRole('heading', { name: 'Ready to deploy' })).toBeTruthy();
+    // With no issues the graph is shown first.
+    expect(screen.getByRole('tab', { name: /Graph/ }).getAttribute('aria-selected')).toBe('true');
   });
 });
 
@@ -120,7 +199,7 @@ describe('API error states', () => {
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
 
     expect(await screen.findByText("Couldn't analyze")).toBeTruthy();
     expect(screen.getByText(message)).toBeTruthy();
@@ -128,15 +207,17 @@ describe('API error states', () => {
 });
 
 describe('graph integration', () => {
-  it('clicking a diagnostic opens the details of its node', async () => {
+  it('"Show in graph" opens the graph with the details of the issue’s node', async () => {
     const user = userEvent.setup();
     stubFetch(ok(terraformMock));
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
-    await user.click(await screen.findByText(/ERROR · UNRESOLVED_DEPENDENCY/));
+    await user.click(analyzeButton());
+    await screen.findByRole('list', { name: 'Issues' });
+    await user.click(issue('UNRESOLVED_DEPENDENCY').getByRole('button', { name: 'Show in graph' }));
 
+    expect(screen.getByRole('tab', { name: /Graph/ }).getAttribute('aria-selected')).toBe('true');
     const details = screen.getByRole('button', { name: 'Close node details' }).closest('section')!;
     expect(within(details).getByText('tf:resource:aws_subnet.app')).toBeTruthy();
     expect(within(details).getByText('Issues')).toBeTruthy();
@@ -147,11 +228,12 @@ describe('graph integration', () => {
     stubFetch(ok(dockerfileMock));
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText('Input format'), 'dockerfile');
+    await user.click(formatRadio('Dockerfile'));
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
+    await screen.findByRole('list', { name: 'Issues' });
     // The unreachable-stage warning is linked to the `test` stage.
-    await user.click(await screen.findByText(/WARNING · UNREACHABLE_NODE/));
+    await user.click(issue('UNREACHABLE_NODE').getByRole('button', { name: 'Show in graph' }));
 
     const details = screen.getByRole('button', { name: 'Close node details' }).closest('section')!;
     expect(within(details).getByText('Instructions')).toBeTruthy();
@@ -159,9 +241,8 @@ describe('graph integration', () => {
   });
 });
 
-
 describe('multifile upload and analysis', () => {
-  it('loads multi-file sample and submits files list payload', async () => {
+  it('loads the multi-file sample, submits the files and shows them in the Files tab', async () => {
     const user = userEvent.setup();
     const mockMultiResult = {
       valid: true,
@@ -236,16 +317,17 @@ describe('multifile upload and analysis', () => {
     await user.click(screen.getByRole('button', { name: 'Analyze 3 files' }));
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/api\/v1\/validate$/);
-    const body = JSON.parse(String(init.body));
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(body.files).toHaveLength(3);
     expect(body.files[0].filename).toBe('variables.tf');
 
-    expect(await screen.findByText('Validated 3 files')).toBeTruthy();
-    expect(screen.getByText('Variables & Occurrences Across Files')).toBeTruthy();
-    expect(screen.getAllByText('var.vpc_cidr').length).toBeGreaterThan(0);
-    expect(screen.getByText('Cross-file Reference')).toBeTruthy();
+    expect(await screen.findByText('Checked 3 files together.')).toBeTruthy();
+    await user.click(screen.getByRole('tab', { name: /Files/ }));
+    const variables = screen.getByRole('region', { name: 'Variables' });
+    expect(within(variables).getByText('var.vpc_cidr')).toBeTruthy();
+    expect(within(variables).getByText('Cross-file reference')).toBeTruthy();
+    const links = screen.getByRole('region', { name: 'Dependencies between files' });
+    expect(links.textContent).toContain('var.vpc_cidr in variables.tf is referenced by main.tf');
   });
 });
 
@@ -255,12 +337,11 @@ describe('mixed formats', () => {
     const fetchMock = stubFetch(ok(mixedMock));
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText('Input format'), 'mixed');
+    await user.click(formatRadio('Mixed'));
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
     await user.click(screen.getByRole('button', { name: 'Analyze 4 files' }));
 
-    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
-    const body = JSON.parse(String(init.body));
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(body.format).toBe('mixed');
     expect(body.files.map((f: { filename: string }) => f.filename)).toEqual([
       'ci.yml',
@@ -268,7 +349,8 @@ describe('mixed formats', () => {
       'install-tools.sh',
       'scan.sh',
     ]);
-    expect(await screen.findByText(/GHA_UNPINNED_ACTION/)).toBeTruthy();
+    expect(await screen.findByText('GHA_UNPINNED_ACTION')).toBeTruthy();
+    await user.click(screen.getByRole('tab', { name: /Graph/ }));
     expect(screen.getByText(/Not shown for mixed formats/)).toBeTruthy();
   });
 
@@ -276,7 +358,7 @@ describe('mixed formats', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText('Input format'), 'dockerfile');
+    await user.click(formatRadio('Dockerfile'));
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
     await user.click(screen.getByRole('button', { name: '+ Add file' }));
     const input = screen.getByLabelText('File name');
@@ -284,18 +366,15 @@ describe('mixed formats', () => {
     await user.type(input, 'build.sh{Enter}');
     expect(screen.getByText('build.sh')).toBeTruthy();
     // A script next to a Dockerfile is build context: still Dockerfile mode.
-    expect((screen.getByLabelText('Input format') as HTMLSelectElement).value).toBe(
-      'dockerfile',
-    );
+    expect(formatRadio('Dockerfile').getAttribute('aria-checked')).toBe('true');
 
     await user.dblClick(screen.getByText('file_1'));
-    const rename = screen.getByLabelText('File name');
-    await user.type(rename, 'Dockerfile{Enter}');
+    await user.type(screen.getByLabelText('File name'), 'Dockerfile{Enter}');
     await user.click(screen.getByRole('button', { name: '+ Add file' }));
     const third = screen.getByLabelText('File name');
     await user.clear(third);
     await user.type(third, 'ci.yml{Enter}');
-    expect((screen.getByLabelText('Input format') as HTMLSelectElement).value).toBe('mixed');
+    expect(formatRadio('Mixed').getAttribute('aria-checked')).toBe('true');
   });
 });
 
@@ -306,10 +385,7 @@ describe('graph diff', () => {
       ...terraformMock,
       diagnostics: [],
       recommendations: [],
-      graph: {
-        nodes: terraformMock.graph.nodes.slice(0, 1),
-        edges: [],
-      },
+      graph: { nodes: terraformMock.graph.nodes.slice(0, 1), edges: [] },
     };
     const fetchMock = vi
       .fn()
@@ -318,8 +394,8 @@ describe('graph diff', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: 'Compare versions' }));
-    fireEvent.change(screen.getByPlaceholderText('Paste the old configuration here'), {
+    await user.click(screen.getByRole('link', { name: 'Compare versions' }));
+    fireEvent.change(await screen.findByPlaceholderText('Paste the old configuration here'), {
       target: { value: 'resource "a" "b" {}' },
     });
     fireEvent.change(screen.getByPlaceholderText('Paste the new configuration here'), {
@@ -336,27 +412,28 @@ describe('graph diff', () => {
 });
 
 describe('fix patches', () => {
-  it('shows a patch with copy and download instead of the preview', async () => {
+  it('shows the patch, with copy and download, inside the issue’s fix', async () => {
     const user = userEvent.setup();
     stubFetch(ok(terraformMock));
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
+    await screen.findByRole('list', { name: 'Issues' });
 
-    const patch = await screen.findByLabelText('Patch');
+    const row = issue('UNRESOLVED_DEPENDENCY');
+    const patch = row.getByLabelText('Patch');
     expect(patch.textContent).toContain('--- a/main.tf');
     expect(patch.textContent).toContain('-  tags   = { vpc = aws_vpc.mian.id }');
     expect(patch.textContent).toContain('+  tags   = { vpc = aws_vpc.main.id }');
-    expect(screen.getByRole('button', { name: 'Copy patch' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Download .patch' })).toBeTruthy();
+    expect(row.getByRole('button', { name: 'Copy patch' })).toBeTruthy();
+    expect(row.getByRole('button', { name: 'Download .patch' })).toBeTruthy();
   });
 });
 
 describe('layer and cache advisor', () => {
-  it('groups Dockerfile size and cache findings', async () => {
+  it('groups Dockerfile size and cache findings in the Build advisor tab', async () => {
     const user = userEvent.setup();
-    const message = (rule: string) => `[${rule}] advice`;
     const advised = {
       ...dockerfileMock,
       diagnostics: [
@@ -365,7 +442,7 @@ describe('layer and cache advisor', () => {
           (rule, i) => ({
             code: 'SECURITY_RULE_VIOLATION',
             severity: 'info',
-            message: message(rule),
+            message: `[${rule}] advice ${i}`,
             source_location: { file: null, start_line: 10 + i, start_column: 1, end_line: null, end_column: null },
           }),
         ),
@@ -374,15 +451,16 @@ describe('layer and cache advisor', () => {
     stubFetch(ok(advised));
     render(<App />);
 
-    await user.selectOptions(screen.getByLabelText('Input format'), 'dockerfile');
+    await user.click(formatRadio('Dockerfile'));
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(analyzeButton());
+    await user.click(await screen.findByRole('tab', { name: /Build advisor/ }));
 
-    const panel = await screen.findByLabelText('Layer and cache advisor');
+    const panel = screen.getByLabelText('Layer and cache advisor');
     expect(within(panel).getByText('Image size')).toBeTruthy();
-    expect(within(panel).getByText('Multi-stage')).toBeTruthy();
+    expect(within(panel).getByText('Multi-stage builds')).toBeTruthy();
     expect(within(panel).queryByText('Cache order')).toBeNull();
-    expect(within(panel).getByText('DF_PIP_NO_CACHE_DIR · line 11')).toBeTruthy();
+    expect(within(panel).getByText('advice 1').parentElement?.textContent).toContain('line 11');
   });
 });
 
@@ -422,8 +500,9 @@ describe('blast radius', () => {
     render(<App />);
 
     await user.click(screen.getByRole('button', { name: 'Load sample' }));
-    await user.click(screen.getByRole('button', { name: 'Analyze' }));
-    await user.click(await screen.findByText(/ERROR · UNRESOLVED_DEPENDENCY/));
+    await user.click(analyzeButton());
+    await screen.findByRole('list', { name: 'Issues' });
+    await user.click(issue('UNRESOLVED_DEPENDENCY').getByRole('button', { name: 'Show in graph' }));
 
     const panel = screen.getByLabelText('Blast radius');
     expect(panel.textContent).toMatch(/Nothing in this graph depends on \S*app, so changing/);

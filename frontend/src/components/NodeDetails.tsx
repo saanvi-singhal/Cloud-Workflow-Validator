@@ -9,9 +9,9 @@ import type { BlastRadius } from '../blastRadius';
 import BlastRadiusPanel from './BlastRadiusPanel';
 
 const SEVERITY_TEXT = {
-  error: 'text-red-700',
-  warning: 'text-amber-700',
-  info: 'text-sky-700',
+  error: 'text-error',
+  warning: 'text-warning',
+  info: 'text-accent-strong',
 } as const;
 
 interface Props {
@@ -57,25 +57,25 @@ export default function NodeDetails({
   );
 
   return (
-    <section className="mt-4 rounded-xl border border-sky-200 bg-sky-50/40 p-4 text-sm">
+    <section className="mt-4 rounded-xl border border-line bg-accent-soft/40 p-4 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-sky-700">
+            <span className="text-xs font-semibold text-accent-strong">
               {node.type}
             </span>
             {node.source_location?.file && (
-              <span className="rounded bg-sky-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-sky-800">
+              <span className="rounded bg-accent-soft px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-strong">
                 {node.source_location.file}
               </span>
             )}
           </div>
-          <h3 className="break-all font-semibold text-slate-900 mt-1">{node.label}</h3>
-          <div className="break-all font-mono text-xs text-slate-500">{node.id}</div>
+          <h3 className="break-all font-semibold text-ink mt-1">{node.label}</h3>
+          <div className="break-all font-mono text-xs text-faint">{node.id}</div>
         </div>
         <button
           onClick={onClose}
-          className="shrink-0 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-2xs"
+          className="shrink-0 rounded border border-line bg-surface px-2.5 py-1 text-xs font-medium text-muted hover:bg-paper hover:text-ink transition-colors "
           aria-label="Close node details"
         >
           Close
@@ -85,7 +85,7 @@ export default function NodeDetails({
       {where && (
         <button
           onClick={() => onJump(node.source_location)}
-          className="mt-2 text-xs font-medium text-sky-700 hover:underline"
+          className="mt-2 text-xs font-medium text-accent-strong hover:underline"
         >
           Defined at {where}
         </button>
@@ -104,7 +104,7 @@ export default function NodeDetails({
 
       {interEdges.length > 0 && (
         <div className="mt-3">
-          <div className="font-semibold text-slate-800 text-xs">Inter-file Dependencies</div>
+          <div className="font-semibold text-ink text-xs">Inter-file Dependencies</div>
           <ul className="mt-1 space-y-1 text-xs">
             {interEdges.map((e, idx) => {
               const isSource = e.source === node.id;
@@ -114,12 +114,12 @@ export default function NodeDetails({
                 ? (e.metadata?.target_file as string)
                 : (e.metadata?.source_file as string);
               return (
-                <li key={idx} className="flex items-center gap-1.5 text-slate-700">
-                  <span className="font-semibold text-sky-800">
+                <li key={idx} className="flex items-center gap-1.5 text-muted">
+                  <span className="font-semibold text-accent-strong">
                     {isSource ? 'Required by:' : 'Prerequisite from:'}
                   </span>
-                  <span className="font-mono text-slate-900 font-medium">{otherFile ?? 'other file'}</span>
-                  <span className="text-slate-500">({otherNode?.label ?? otherNodeId})</span>
+                  <span className="font-mono text-ink font-medium">{otherFile ?? 'other file'}</span>
+                  <span className="text-faint">({otherNode?.label ?? otherNodeId})</span>
                 </li>
               );
             })}
@@ -129,7 +129,7 @@ export default function NodeDetails({
 
       {issues.length > 0 && (
         <div className="mt-3">
-          <div className="font-semibold text-slate-800">Issues</div>
+          <div className="font-semibold text-ink">Issues</div>
           <ul className="mt-1 space-y-1">
             {issues.map(({ index, diagnostic }) => (
               <li key={index}>
@@ -140,7 +140,7 @@ export default function NodeDetails({
                   <span className={`font-semibold ${SEVERITY_TEXT[diagnostic.severity]}`}>
                     {diagnostic.severity.toUpperCase()}
                   </span>{' '}
-                  <span className="text-slate-700">{diagnostic.message}</span>
+                  <span className="text-muted">{diagnostic.message}</span>
                 </button>
               </li>
             ))}
@@ -150,17 +150,17 @@ export default function NodeDetails({
 
       {instructions.length > 0 && (
         <div className="mt-3">
-          <div className="font-semibold text-slate-800">Instructions</div>
-          <ol className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white font-mono text-xs shadow-2xs">
+          <div className="font-semibold text-ink">Instructions</div>
+          <ol className="mt-1 overflow-hidden rounded-lg border border-line bg-surface font-mono text-xs ">
             {instructions.map(item => (
-              <li key={item.start_line} className="border-b border-slate-100 last:border-0">
+              <li key={item.start_line} className="border-b border-line-soft last:border-0">
                 <button
                   onClick={() => onJump(lineLocation(item.start_line, item.end_line))}
-                  className="flex w-full gap-3 px-2.5 py-1.5 text-left hover:bg-sky-50 transition-colors"
+                  className="flex w-full gap-3 px-2.5 py-1.5 text-left hover:bg-accent-soft transition-colors"
                   title="Show in editor"
                 >
-                  <span className="w-8 shrink-0 text-right text-slate-400">{item.start_line}</span>
-                  <span className="whitespace-pre-wrap break-all text-slate-800">{item.text}</span>
+                  <span className="w-8 shrink-0 text-right text-faint">{item.start_line}</span>
+                  <span className="whitespace-pre-wrap break-all text-ink">{item.text}</span>
                 </button>
               </li>
             ))}
@@ -170,12 +170,12 @@ export default function NodeDetails({
 
       {metadata.length > 0 && (
         <div className="mt-3">
-          <div className="font-semibold text-slate-800">Metadata</div>
+          <div className="font-semibold text-ink">Metadata</div>
           <dl className="mt-1 grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
             {metadata.map(([k, v]) => (
               <div key={k} className="contents">
-                <dt className="font-mono text-slate-500">{k}</dt>
-                <dd className="font-mono text-slate-800 truncate">{v}</dd>
+                <dt className="font-mono text-faint">{k}</dt>
+                <dd className="font-mono text-ink truncate">{v}</dd>
               </div>
             ))}
           </dl>

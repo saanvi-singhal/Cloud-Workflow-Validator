@@ -20,14 +20,33 @@ Both are read at build time (see `.env.example`).
 
 ## What the UI does
 
-- Choose a format, then paste, upload or load a sample, and analyse it (`POST /api/v1/validate`).
-- Status badge, partial-analysis banner, diagnostics and suggested fixes with previews.
-- Dependency graph (React Flow, Dagre layout). Arrows point from a prerequisite to the item that depends on it. Boxes are coloured by their most severe issue, cycle edges are red and animated, and `depends_on` edges are dashed. The layout picks left-to-right or top-to-bottom, whichever fits. Full screen is available from the graph controls.
-- Clicking a diagnostic selects its text in the editor and highlights its nodes. Clicking a node shows its details: metadata, linked issues and, for Dockerfile stages, the ordered instructions, each linked to its line.
-- **Blast radius** ("click a node, see what breaks"): a node's details list everything that depends on it, directly or through others, grouped by distance and with the edge each is reached through. "Show on graph" colours the selected node red, the affected nodes orange to yellow (nearest first), and fades the rest. `blastRadius.ts` walks the documented edge direction (`A → B`: B depends on A) breadth-first, like the backend's `descendants`. When the analysis is partial, the panel warns that dependents may be missing.
-- **Compare versions** (graph diff): analyse an old and a new version and see both graphs, with added, removed and rewired items and any new cycle (`graphDiff.ts`).
-- **Suggested fixes** show a ready-to-apply patch (Copy / Download .patch) when the backend provides one. The **layer & cache advisor** groups Dockerfile build-speed and image-size findings.
-- Cycles, validity, order and diagnostics come from the backend response. The UI only follows edges in their documented direction (blast radius, diff); it does not re-analyse.
+Three pages, linked from the top bar. They use hash URLs (`#/analyze`, `#/compare`, `#/how-it-works`), so links, reloads and the back button work. The Analyze page stays mounted, so switching pages keeps your input and results.
+
+**Analyze** (`src/pages/AnalyzePage.tsx`)
+
+- **Editor (left):** choose a format (Terraform, GitHub Actions, Dockerfile, or Mixed to detect each file's format), then paste, upload or load a sample.
+  - Each file is a tab. "+ Add file" asks for a name straight away, and double-clicking a tab renames it.
+  - Clicking an issue selects its text in the editor.
+- **Results (right):** a deploy verdict ("Not ready to deploy", "Ready, with warnings to review", "Ready to deploy") with counts, then tabs:
+  - **Issues:** every diagnostic, filterable by severity. Each issue has its fix underneath, with the ready-to-apply patch (Copy / Download .patch) or a preview. "Show in graph" switches to the graph with the issue's nodes highlighted.
+  - **Graph:** the dependency graph (React Flow, Dagre layout).
+    - Arrows point from a prerequisite to the item that depends on it.
+    - Boxes are coloured by their most severe issue, and cycle edges are red and animated.
+    - Clicking a box shows its details, including its **blast radius**: everything that depends on it, grouped by distance. "Show on graph" colours the affected items. `blastRadius.ts` walks the documented edge direction breadth-first, like the backend's `descendants`.
+  - **Files** (several files only): each file and what it was analysed as, the dependencies between files, and the Terraform variables table.
+  - **Build advisor** (Dockerfiles only): the layer and cache findings, grouped as cache order, image size and multi-stage builds.
+- **Before analysing:** the results panel offers examples that load and analyse in one click.
+
+**Compare versions** (`src/components/CompareView.tsx`): paste an old and a new version to see both graphs, with added, removed and rewired items and any new cycle (`graphDiff.ts`).
+
+**How it works** (`src/pages/HowItWorksPage.tsx`): the pipeline, what each format is checked for, and what the tool never does.
+
+Cycles, validity, order and diagnostics come from the backend response. The UI only follows edges in their documented direction (blast radius, diff); it does not re-analyse.
+
+**Design tokens** live in `src/index.css` (`@theme`):
+
+- **Colours:** steel-grey paper and white surfaces; ink text; one accent (teal) for actions and the current page; severity colours used only to carry meaning.
+- **Type:** IBM Plex Sans for the interface, and IBM Plex Mono for code and identifiers.
 
 ## Checks
 

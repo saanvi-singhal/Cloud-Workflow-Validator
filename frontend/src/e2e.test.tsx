@@ -9,7 +9,8 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import App from './App';
-import { executionOrderNote, getStatus, isPartial, labelFor } from './analysis';
+import { executionOrderNote, isPartial, labelFor, verdict } from './analysis';
+import { splitRule } from './advisor';
 import type { AnalysisResult, SourceFormat } from './types';
 
 const API = 'http://localhost:8000/api/v1/validate';
@@ -81,19 +82,11 @@ beforeAll(() => {
 
 afterEach(cleanup);
 
-/** The cards listed under a results heading ("Diagnostics", "Suggested fixes"). */
-function cardsUnder(heading: string): HTMLElement[] {
-  const title = screen.queryByRole('heading', { level: 2, name: heading });
-  if (!title) return [];
-  const cards: HTMLElement[] = [];
-  let node = title.nextElementSibling;
-  while (node && node.tagName !== 'H2') {
-    if (node.tagName === 'UL') cards.push(...(Array.from(node.children) as HTMLElement[]));
-    else if (node.tagName === 'DIV') cards.push(node as HTMLElement);
-    node = node.nextElementSibling;
-  }
-  return cards;
-}
+const SEVERITY_LABEL = { error: 'Error', warning: 'Warning', info: 'Suggestion' } as const;
+
+beforeAll(() => {
+  window.scrollTo = (() => {}) as typeof window.scrollTo;
+});
 
 describe.skipIf(!enabled)('frontend shows the backend result for every sample input', () => {
   it('covers every example and sample', () => {
@@ -116,46 +109,60 @@ describe.skipIf(!enabled)('frontend shows the backend result for every sample in
     else expect(result.diagnostics).toEqual([]);
 
     render(<App />);
-    fireEvent.change(screen.getByLabelText('Input format'), { target: { value: format } });
-    fireEvent.change(screen.getByPlaceholderText(/Paste your/), {
-      target: { value: source },
-    });
+    const formats = within(screen.getByRole('radiogroup', { name: 'Input format' }));
+    const label = { yaml: 'GitHub Actions', dockerfile: 'Dockerfile', terraform: 'Terraform', mixed: 'Mixed' };
+    fireEvent.click(formats.getByRole('radio', { name: label[format] }));
+    fireEvent.change(screen.getByLabelText('Configuration source'), { target: { value: source } });
     fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
 
-    // Status badge.
-    const status = getStatus(result);
-    expect(await screen.findByText(status.label, {}, { timeout: 5000 })).toBeTruthy();
-    expect(status.label === 'Invalid').toBe(!valid);
+    // The verdict.
+    const v = verdict(result);
+    expect(await screen.findByRole('heading', { name: v.title }, { timeout: 5000 })).toBeTruthy();
+    expect(v.tone === 'error').toBe(!valid);
+    expect(screen.getByText(v.detail)).toBeTruthy();
 
-    // Every diagnostic, in order, with its severity and code.
-    const diagnostics = cardsUnder('Diagnostics');
-    expect(diagnostics).toHaveLength(result.diagnostics.length);
-    result.diagnostics.forEach((d, i) => {
-      const card = within(diagnostics[i]);
-      expect(card.getByText(d.message)).toBeTruthy();
-      expect(diagnostics[i].textContent).toContain(`${d.severity.toUpperCase()} · ${d.code}`);
-    });
-    if (result.diagnostics.length === 0) expect(screen.getByText('No issues found.')).toBeTruthy();
+    // Partial-analysis banner exactly when the backend reports partial analysis.
+    expect(Boolean(screen.queryByText('Partial analysis.'))).toBe(isPartial(result));
 
-    // Every recommendation, with its preview when there is one.
-    const fixes = cardsUnder('Suggested fixes');
-    expect(fixes).toHaveLength(result.recommendations.length);
-    result.recommendations.forEach((r, i) => {
-      expect(fixes[i].textContent).toContain(r.title);
-      // A patch replaces the preview; each patch line is its own row.
-      if (r.proposed_change?.patch) {
-        expect(within(fixes[i]).getByLabelText('Patch').textContent).toBe(
-          r.proposed_change.patch
-            .split('\n')
-            .map(line => line || '\u00a0')
-            .join(''),
-        );
-      } else if (r.proposed_change?.preview) {
-        expect(fixes[i].querySelector('pre')?.textContent).toBe(r.proposed_change.preview);
-      }
-    });
+    // Every diagnostic, in order, with its severity, code (or rule id) and
+    // every recommendation linked to it, with its patch or preview.
+    if (result.diagnostics.length === 0) {
+      fireEvent.click(screen.getByRole('tab', { name: /Issues/ }));
+      expect(screen.getByText('No issues found.')).toBeTruthy();
+    } else {
+      const rows = within(screen.getByRole('list', { name: 'Issues' })).getAllByRole('listitem');
+      expect(rows).toHaveLength(result.diagnostics.length);
+      result.diagnostics.forEach((d, i) => {
+        const [rule, text] = splitRule(d.message);
+        const row = within(rows[i]);
+        expect(row.getByText(text)).toBeTruthy();
+        expect(row.getByText(SEVERITY_LABEL[d.severity])).toBeTruthy();
+        expect(row.getByText(rule ?? d.code)).toBeTruthy();
+        const fixes = result.recommendations.filter(r => r.diagnostic_index === i);
+        fixes.forEach(r => {
+          expect(rows[i].textContent).toContain(`Fix: ${r.title}`);
+          if (r.proposed_change?.patch) {
+            const patches = row.getAllByLabelText('Patch').map(el => el.textContent);
+            expect(patches).toContain(
+              r.proposed_change.patch
+                .split('\n')
+                .map(line => line || '\u00a0')
+                .join(''),
+            );
+          } else if (r.proposed_change?.preview) {
+            const previews = row.getAllByLabelText('Preview').map(el => el.textContent);
+            expect(previews).toContain(r.proposed_change.preview);
+          }
+        });
+      });
+      // Every recommendation is shown under some issue.
+      const shown = result.recommendations.filter(r => r.diagnostic_index < result.diagnostics.length);
+      expect(shown).toHaveLength(result.recommendations.length);
+    }
 
-    // Execution order, or the reason it is missing.
+    // Graph tab: execution order, or the reason it is missing, and an empty
+    // graph is explained instead of shown blank.
+    fireEvent.click(screen.getByRole('tab', { name: /Graph/ }));
     if (result.execution_order) {
       result.execution_order.forEach((id, i) => {
         expect(screen.getByText(`${i + 1}. ${labelFor(result, id)}`)).toBeTruthy();
@@ -163,11 +170,6 @@ describe.skipIf(!enabled)('frontend shows the backend result for every sample in
     } else {
       expect(screen.getByText(executionOrderNote(result)!)).toBeTruthy();
     }
-
-    // Partial-analysis banner exactly when the backend reports partial analysis.
-    expect(Boolean(screen.queryByText('Partial analysis.'))).toBe(isPartial(result));
-
-    // An empty graph is explained instead of shown blank.
     expect(Boolean(screen.queryByText('Nothing to draw'))).toBe(result.graph.nodes.length === 0);
   });
 });

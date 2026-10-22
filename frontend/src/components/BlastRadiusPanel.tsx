@@ -31,12 +31,12 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
   return (
     <section aria-label="Blast radius" className="mt-3 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="font-semibold text-slate-800">Blast radius</div>
+        <div className="font-semibold text-ink">Blast radius</div>
         {total > 0 && (
           <button
             type="button"
             onClick={onToggle}
-            className="rounded border border-orange-300 bg-white px-2 py-0.5 text-xs font-medium text-orange-800 hover:bg-orange-100"
+            className="rounded border border-orange-300 bg-surface px-2 py-0.5 text-xs font-medium text-orange-800 hover:bg-orange-100"
           >
             {shown ? 'Hide on graph' : 'Show on graph'}
           </button>
@@ -44,13 +44,13 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
       </div>
 
       {total === 0 ? (
-        <p className="mt-1 text-xs text-slate-600">
+        <p className="mt-1 text-xs text-muted">
           Nothing in this graph depends on {node.label}, so changing or removing it affects
           nothing else here.
         </p>
       ) : (
         <>
-          <p className="mt-1 text-xs text-slate-700">
+          <p className="mt-1 text-xs text-muted">
             Changing or removing <span className="font-semibold">{node.label}</span> affects{' '}
             <span className="font-semibold">
               {total} {total === 1 ? 'item' : 'items'}
@@ -60,7 +60,7 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
           </p>
           {[...byDepth].map(([depth, items]) => (
             <div key={depth} className="mt-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-orange-800">
+              <div className="text-[11px] font-semibold text-orange-800">
                 {depth === 1 ? 'Directly' : `${depth} steps away`} ({items.length})
               </div>
               <ul className="mt-0.5 space-y-0.5 text-xs">
@@ -69,11 +69,11 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
                     <button
                       type="button"
                       onClick={() => onSelectNode(item.id)}
-                      className="text-left font-mono text-slate-800 hover:underline"
+                      className="text-left font-mono text-ink hover:underline"
                     >
                       {labelFor(result, item.id)}
                     </button>
-                    <span className="text-slate-500">
+                    <span className="text-faint">
                       {' '}
                       via {labelFor(result, item.via.source)}
                       {item.via.label
@@ -89,7 +89,7 @@ export default function BlastRadiusPanel({ result, node, blast, shown, onToggle,
       )}
 
       {isPartial(result) && (
-        <p className="mt-2 text-xs text-amber-800">
+        <p className="mt-2 text-xs text-warning">
           The analysis is partial, so some dependents may be missing from this list.
         </p>
       )}

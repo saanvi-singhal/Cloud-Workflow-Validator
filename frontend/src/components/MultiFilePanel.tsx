@@ -1,225 +1,144 @@
-import type { MultiFileSummary, SourceLocation } from '../types';
+import type { MultiFileSummary, SourceLocation, VariableOccurrence } from '../types';
 
 interface Props {
   summary: MultiFileSummary;
   onJumpToFile: (filename: string, location?: SourceLocation | null) => void;
 }
 
+const FORMAT_LABEL: Record<string, string> = {
+  yaml: 'GitHub Actions workflow',
+  dockerfile: 'Dockerfile',
+  terraform: 'Terraform',
+  build_context: 'Build context (used by a Dockerfile)',
+  unknown: 'Not analysed',
+};
+
+// What a dependency between two files means, in the user's terms.
+const LINK_LABEL: Record<string, string> = {
+  terraform_reference: 'is referenced by',
+  terraform_explicit_dependency: 'is listed in depends_on by',
+  workflow_dependency: 'is needed by',
+  docker_stage_base: 'is a stage used by',
+  docker_build_context: 'is copied or run by',
+};
+
+function variableStatus(v: VariableOccurrence): { text: string; tone: string } {
+  if (v.is_duplicate) return { text: 'Declared more than once', tone: 'text-error' };
+  if (v.declared_files.length === 0) return { text: 'Undeclared', tone: 'text-error' };
+  if (v.is_unused) return { text: 'Unused', tone: 'text-warning' };
+  if (v.referenced_files.some(f => !v.declared_files.includes(f))) {
+    return { text: 'Cross-file reference', tone: 'text-ok' };
+  }
+  return { text: 'Used in the same file', tone: 'text-muted' };
+}
+
+function FileButton({ name, onClick }: { name: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="font-mono text-sm text-accent hover:underline">
+      {name}
+    </button>
+  );
+}
+
+/** The files analysed together, what links them, and shared Terraform variables. */
 export default function MultiFilePanel({ summary, onJumpToFile }: Props) {
-  const hasDuplicate = summary.duplicate_variables.length > 0;
-  const hasUnused = summary.unused_variables.length > 0;
+  const formats = summary.file_formats ?? {};
+  const links = summary.interfile_dependencies;
+  const variables = summary.variable_occurrences;
 
   return (
-    <div className="mt-6 space-y-6">
-      {/* Top statistics overview */}
-      <div className="grid gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
-          <div className="text-xs font-medium text-slate-500">Files Analyzed</div>
-          <div className="mt-1 text-2xl font-bold text-slate-800">{summary.files.length}</div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {summary.files.map(f => (
-              <button
-                key={f}
-                onClick={() => onJumpToFile(f)}
-                className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 transition-colors"
-              >
-                {f}
-                {summary.file_formats?.[f] && (
-                  <span className="ml-1 text-slate-400">
-                    · {summary.file_formats[f].replace('_', ' ')}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+    <div className="space-y-6">
+      <section aria-label="Files">
+        <h3 className="font-semibold text-ink">Files</h3>
+        <ul className="mt-2 divide-y divide-line-soft rounded-md border border-line-soft">
+          {summary.files.map(f => (
+            <li key={f} className="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2">
+              <FileButton name={f} onClick={() => onJumpToFile(f)} />
+              {formats[f] && (
+                <span className="text-sm text-muted">{FORMAT_LABEL[formats[f]] ?? formats[f]}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
-          <div className="text-xs font-medium text-slate-500">Inter-file Dependencies</div>
-          <div className="mt-1 text-2xl font-bold text-sky-600">
-            {summary.interfile_dependencies.length}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">Cross-boundary references</div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
-          <div className="text-xs font-medium text-slate-500">Variables Tracked</div>
-          <div className="mt-1 text-2xl font-bold text-slate-800">
-            {summary.variable_occurrences.length}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">Across all uploaded files</div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
-          <div className="text-xs font-medium text-slate-500">Issues & Status</div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span
-              className={`text-2xl font-bold ${hasDuplicate ? 'text-red-600' : 'text-emerald-600'}`}
-            >
-              {hasDuplicate ? summary.duplicate_variables.length : 0}
-            </span>
-            <span className="text-xs text-slate-500">duplicates</span>
-          </div>
-          {hasUnused && (
-            <div className="mt-1 text-xs font-medium text-amber-600">
-              {summary.unused_variables.length} unused variable(s)
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Variable Occurrences Across Files */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-          <span>Variables & Occurrences Across Files</span>
-          <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 border border-sky-100">
-            {summary.variable_occurrences.length}
-          </span>
-        </h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Detects shared variable references, duplicate declarations across files, and unused variables.
-        </p>
-
-        {summary.variable_occurrences.length === 0 ? (
-          <p className="mt-3 text-xs text-slate-400 italic">No variables declared or referenced.</p>
+      <section aria-label="Dependencies between files">
+        <h3 className="font-semibold text-ink">Dependencies between files</h3>
+        {links.length === 0 ? (
+          <p className="mt-1 text-sm text-muted">No file depends on another one.</p>
         ) : (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                  <th className="py-2.5 px-3 font-semibold">Variable Name</th>
-                  <th className="py-2.5 px-3 font-semibold">Declared In</th>
-                  <th className="py-2.5 px-3 font-semibold">Referenced In</th>
-                  <th className="py-2.5 px-3 font-semibold">Occurrences</th>
-                  <th className="py-2.5 px-3 font-semibold">Status</th>
+          <ul className="mt-2 divide-y divide-line-soft rounded-md border border-line-soft">
+            {links.map((dep, i) => (
+              <li key={`${dep.source_node}-${dep.target_node}-${i}`} className="px-3 py-2 text-sm text-muted">
+                {(dep.symbol ?? dep.source_node) === dep.source_file ? (
+                  <FileButton name={dep.source_file} onClick={() => onJumpToFile(dep.source_file)} />
+                ) : (
+                  <>
+                    <span className="font-mono text-ink">{dep.symbol ?? dep.source_node}</span> in{' '}
+                    <FileButton name={dep.source_file} onClick={() => onJumpToFile(dep.source_file)} />
+                  </>
+                )}{' '}
+                {LINK_LABEL[dep.edge_type] ?? 'is used by'}{' '}
+                <FileButton name={dep.target_file} onClick={() => onJumpToFile(dep.target_file)} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {variables.length > 0 && (
+        <section aria-label="Variables">
+          <h3 className="font-semibold text-ink">Variables</h3>
+          <p className="text-sm text-muted">
+            Where each Terraform variable is declared and used, across all files.
+          </p>
+          <div className="mt-2 overflow-x-auto rounded-md border border-line-soft">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-paper text-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Variable</th>
+                  <th className="px-3 py-2 font-medium">Declared in</th>
+                  <th className="px-3 py-2 font-medium">Used in</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-sans">
-                {summary.variable_occurrences.map(v => {
-                  const isShared = v.declared_files.length > 0 && v.referenced_files.length > 0;
+              <tbody className="divide-y divide-line-soft">
+                {variables.map(v => {
+                  const status = variableStatus(v);
                   return (
-                    <tr key={v.name} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-2.5 px-3 font-mono font-medium text-slate-800">
-                        var.{v.name}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        {v.declared_files.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {v.declared_files.map(f => (
-                              <button
-                                key={f}
-                                onClick={() => onJumpToFile(f, v.locations[0] ?? null)}
-                                className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 transition-colors"
-                              >
-                                {f}
-                              </button>
-                            ))}
-                          </div>
+                    <tr key={v.name}>
+                      <td className="px-3 py-2 font-mono text-ink">var.{v.name}</td>
+                      <td className="px-3 py-2">
+                        {v.declared_files.length ? (
+                          v.declared_files.map(f => (
+                            <span key={f} className="mr-2">
+                              <FileButton name={f} onClick={() => onJumpToFile(f, v.locations[0] ?? null)} />
+                            </span>
+                          ))
                         ) : (
-                          <span className="font-medium text-red-600">Undeclared</span>
+                          <span className="text-faint">Nowhere</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3">
-                        {v.referenced_files.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {v.referenced_files.map(f => (
-                              <button
-                                key={f}
-                                onClick={() => onJumpToFile(f)}
-                                className="rounded border border-sky-100 bg-sky-50 px-1.5 py-0.5 font-mono text-[11px] text-sky-700 hover:bg-sky-100 transition-colors"
-                              >
-                                {f}
-                              </button>
-                            ))}
-                          </div>
+                      <td className="px-3 py-2">
+                        {v.referenced_files.length ? (
+                          v.referenced_files.map(f => (
+                            <span key={f} className="mr-2">
+                              <FileButton name={f} onClick={() => onJumpToFile(f)} />
+                            </span>
+                          ))
                         ) : (
-                          <span className="text-slate-400 italic">None</span>
+                          <span className="text-faint">Nowhere</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-700">
-                        {v.total_occurrences}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        {v.is_duplicate ? (
-                          <span className="rounded-full bg-red-100 px-2.5 py-0.5 font-medium text-red-700">
-                            Duplicate Declaration
-                          </span>
-                        ) : v.is_unused ? (
-                          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-medium text-amber-700">
-                            Unused Variable
-                          </span>
-                        ) : isShared ? (
-                          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">
-                            Cross-file Reference
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-medium text-slate-600">
-                            Local
-                          </span>
-                        )}
-                      </td>
+                      <td className={`px-3 py-2 ${status.tone}`}>{status.text}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-
-      {/* Inter-File Dependencies */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-          <span>Inter-File Dependencies</span>
-          <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 border border-sky-100">
-            {summary.interfile_dependencies.length}
-          </span>
-        </h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Cross-file edges showing prerequisites and data dependencies between different files.
-        </p>
-
-        {summary.interfile_dependencies.length === 0 ? (
-          <p className="mt-3 text-xs text-slate-400 italic">
-            No dependencies crossing file boundaries found.
-          </p>
-        ) : (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {summary.interfile_dependencies.map((dep, idx) => (
-              <div
-                key={`${dep.source_node}-${dep.target_node}-${idx}`}
-                className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 text-xs"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 font-mono">
-                    <button
-                      onClick={() => onJumpToFile(dep.source_file)}
-                      className="font-medium text-sky-700 hover:text-sky-800 hover:underline"
-                    >
-                      {dep.source_file}
-                    </button>
-                    <svg className="h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
-                    <button
-                      onClick={() => onJumpToFile(dep.target_file)}
-                      className="font-medium text-sky-700 hover:text-sky-800 hover:underline"
-                    >
-                      {dep.target_file}
-                    </button>
-                  </div>
-                  <div className="mt-1 truncate font-mono text-[11px] text-slate-500">
-                    Symbol: <span className="font-medium text-slate-800">{dep.symbol ?? dep.source_node}</span>
-                  </div>
-                </div>
-                <span className="ml-2 rounded bg-sky-50 border border-sky-100 px-1.5 py-0.5 text-[10px] uppercase font-semibold text-sky-700">
-                  {dep.edge_type.replace('terraform_', '')}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+        </section>
+      )}
     </div>
   );
 }

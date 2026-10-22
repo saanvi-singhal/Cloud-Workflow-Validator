@@ -26,7 +26,7 @@ import {
 
 const MIN_W = 200;
 const H = 48;
-const EDGE = '#64748b';
+const EDGE = '#6b7783';
 
 // Approximate size of the graph panel, used only to choose a layout direction.
 const PANEL = { width: 520, height: 448 };
@@ -56,14 +56,14 @@ function nodeWidth(label: string): number {
 }
 
 const NODE_COLORS: Record<Severity | 'none', { border: string; background: string; text: string }> = {
-  error: { border: '#ef4444', background: '#fef2f2', text: '#991b1b' },
-  warning: { border: '#f59e0b', background: '#fffbeb', text: '#92400e' },
-  info: { border: '#0284c7', background: '#f0f9ff', text: '#0369a1' },
-  none: { border: '#cbd5e1', background: '#ffffff', text: '#0f172a' },
+  error: { border: '#b42318', background: '#fdecea', text: '#7a1710' },
+  warning: { border: '#b54708', background: '#fdf1e5', text: '#7a3005' },
+  info: { border: '#1d5fa6', background: '#e8f0fa', text: '#123e6d' },
+  none: { border: '#b9c1ca', background: '#ffffff', text: '#17212b' },
 };
-const CYCLE_EDGE = '#ef4444';
-const INTERFILE_EDGE = '#0284c7';
-const HIGHLIGHT = '0 0 0 3px rgba(2, 132, 199, 0.45)';
+const CYCLE_EDGE = '#b42318';
+const INTERFILE_EDGE = '#0b7a75';
+const HIGHLIGHT = '0 0 0 3px rgba(11, 122, 117, 0.45)';
 
 // Typed edge styling (spec 8.3): explicit dependencies are dashed so they stand
 // out from references Terraform infers.
@@ -174,15 +174,15 @@ export default function DependencyGraph({
         data: {
           label: (
             <div className="leading-tight">
-              <div className="flex items-center justify-between gap-1 text-[9px] uppercase tracking-wide text-slate-500 font-mono">
+              <div className="flex items-center justify-between gap-1 text-[9px] text-faint font-mono">
                 <span>{n.type}</span>
                 {fileBadge && (
-                  <span className="max-w-[100px] truncate rounded bg-slate-100 px-1 font-mono text-[9px] lowercase text-sky-700 font-semibold border border-slate-200">
+                  <span className="max-w-[100px] truncate rounded bg-paper px-1 font-mono text-[9px] lowercase text-accent-strong font-semibold border border-line">
                     {fileBadge}
                   </span>
                 )}
               </div>
-              <div className="font-mono text-xs font-semibold text-slate-900 mt-0.5 truncate">
+              <div className="font-mono text-xs font-semibold text-ink mt-0.5 truncate">
                 {cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label}
               </div>
             </div>
@@ -269,15 +269,15 @@ export default function DependencyGraph({
   return (
     <div className="mt-4">
       {graphEmpty ? (
-        <div className="flex h-[28rem] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-          <p className="font-medium text-slate-700">Nothing to draw</p>
-          <p className="mt-1 max-w-sm text-sm text-slate-500">
+        <div className="flex h-[28rem] flex-col items-center justify-center rounded-xl border border-dashed border-line bg-paper p-6 text-center">
+          <p className="font-medium text-muted">Nothing to draw</p>
+          <p className="mt-1 max-w-sm text-sm text-faint">
             No {NODE_NOUN[result.format]} were found in this file, so there is no dependency graph.
             See the diagnostics below.
           </p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-[28rem] rounded-xl border border-slate-200 bg-white shadow-xs">
+        <div ref={containerRef} className="h-[28rem] rounded-xl border border-line bg-surface ">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -311,7 +311,7 @@ export default function DependencyGraph({
         </div>
       )}
 
-      <div className="mt-2 space-y-1 text-xs text-slate-600">
+      <div className="mt-2 space-y-1 text-xs text-muted">
         <p>
           Arrows point from a prerequisite to the item that depends on it. Click a box for its
           details.
@@ -320,7 +320,7 @@ export default function DependencyGraph({
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Edges:</span>
             {edgeTypes.map(type => (
-              <span key={type} className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-700">
+              <span key={type} className="inline-flex items-center gap-1 font-mono text-[11px] text-muted">
                 <svg width="22" height="6" aria-hidden="true">
                   <line
                     x1="0"
@@ -336,7 +336,7 @@ export default function DependencyGraph({
               </span>
             ))}
             {hasInterFile && (
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-sky-700">
+              <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-accent-strong">
                 <svg width="22" height="6" aria-hidden="true">
                   <line
                     x1="0"
@@ -356,18 +356,18 @@ export default function DependencyGraph({
         {severitiesShown.size > 0 && (
           <p>
             Box colour shows the most severe issue linked to it:
-            {severitiesShown.has('error') && <span className="ml-2 font-medium text-red-600">red = error</span>}
+            {severitiesShown.has('error') && <span className="ml-2 font-medium text-error">red = error</span>}
             {severitiesShown.has('warning') && (
-              <span className="ml-2 font-medium text-amber-600">amber = warning</span>
+              <span className="ml-2 font-medium text-warning">amber = warning</span>
             )}
-            {severitiesShown.has('info') && <span className="ml-2 font-medium text-sky-600">blue = info</span>}
+            {severitiesShown.has('info') && <span className="ml-2 font-medium text-accent-strong">blue = info</span>}
           </p>
         )}
         {blast && (
           <p className="flex flex-wrap gap-x-3 font-semibold">
-            <span className="text-red-600">Red = the selected item</span>
+            <span className="text-error">Red = the selected item</span>
             <span className="text-orange-600">orange to yellow = affected, nearest first</span>
-            <span className="text-slate-500">faded = not affected</span>
+            <span className="text-faint">faded = not affected</span>
           </p>
         )}
         {diff && (
@@ -378,27 +378,27 @@ export default function DependencyGraph({
           </p>
         )}
         {hasCycle && (
-          <p className="text-red-600">
+          <p className="text-error">
             Animated red arrows form a dependency cycle. ↻ means an item depends on itself.
           </p>
         )}
       </div>
 
       <div className="mt-3 text-sm">
-        <div className="font-semibold text-slate-900">Execution order</div>
+        <div className="font-semibold text-ink">Execution order</div>
         {order ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {order.map((id, i) => (
               <div key={id} className="flex items-center gap-2">
-                <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 font-mono text-xs font-medium text-slate-700">
+                <span className="rounded-full border border-line bg-paper px-3 py-1 font-mono text-xs font-medium text-muted">
                   {i + 1}. {labelFor(result, id)}
                 </span>
-                {i < order.length - 1 && <span className="text-slate-400">→</span>}
+                {i < order.length - 1 && <span className="text-faint">→</span>}
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-slate-500 text-xs">{orderNote}</p>
+          <p className="mt-1 text-faint text-xs">{orderNote}</p>
         )}
       </div>
     </div>

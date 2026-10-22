@@ -17,13 +17,38 @@ export const edgeKey = (e: GraphEdge) => `${e.source}->${e.target}:${e.type}`;
 
 export type StatusTone = 'valid' | 'warning' | 'error';
 
-/** Status badge, driven by the backend's `valid` flag. */
-export function getStatus(result: AnalysisResult): { label: string; tone: StatusTone } {
-  if (!result.valid) return { label: 'Invalid', tone: 'error' };
-  if (result.diagnostics.some(d => d.severity === 'warning')) {
-    return { label: 'Valid with warnings', tone: 'warning' };
+export function severityCounts(result: AnalysisResult): Record<Severity, number> {
+  const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
+  for (const d of result.diagnostics) counts[d.severity] += 1;
+  return counts;
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** The headline answer to "can I ship this?", from the backend's `valid` flag. */
+export function verdict(result: AnalysisResult): { title: string; detail: string; tone: StatusTone } {
+  const c = severityCounts(result);
+  const rest = [
+    c.warning ? plural(c.warning, 'warning') : '',
+    c.info ? plural(c.info, 'suggestion') : '',
+  ].filter(Boolean);
+  if (!result.valid) {
+    return {
+      title: 'Not ready to deploy',
+      detail: [`${plural(c.error, 'error')} to fix`, ...rest].join(', ') + '.',
+      tone: 'error',
+    };
   }
-  return { label: 'Valid', tone: 'valid' };
+  if (c.warning) {
+    return { title: 'Ready, with warnings to review', detail: rest.join(', ') + '.', tone: 'warning' };
+  }
+  return {
+    title: 'Ready to deploy',
+    detail: c.info ? `No problems found. ${plural(c.info, 'suggestion')}.` : 'No problems found.',
+    tone: 'valid',
+  };
 }
 
 /** Partial analysis: an unsupported construct may hide dependencies. */

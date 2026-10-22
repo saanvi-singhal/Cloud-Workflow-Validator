@@ -12,7 +12,7 @@ interface Props {
 const NO_HIGHLIGHT: ReadonlySet<string> = new Set();
 
 const EDITOR =
-  'w-full rounded-lg border bg-white p-3.5 font-mono text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:ring-1 focus:outline-hidden';
+  'w-full rounded-lg border bg-surface p-3.5 font-mono text-xs leading-relaxed text-ink placeholder:text-faint focus:ring-1 focus:outline-hidden';
 
 /**
  * Graph diff: analyse an old and a new version of one configuration and draw
@@ -51,8 +51,8 @@ export default function CompareView({ language, onLanguageChange }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-xs">
-        <label className="mb-4 block text-sm font-medium text-slate-700">
+      <section className="rounded-xl border border-line/90 bg-surface p-6 ">
+        <label className="mb-4 block text-sm font-medium text-muted">
           Format
           <select
             aria-label="Compare format"
@@ -61,7 +61,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               onLanguageChange(e.target.value as SourceFormat);
               setResults(null);
             }}
-            className="mt-1 block w-44 rounded-md border border-slate-300 bg-white p-2 text-sm"
+            className="mt-1 block w-44 rounded-md border border-line bg-surface p-2 text-sm"
           >
             <option value="terraform">Terraform</option>
             <option value="dockerfile">Dockerfile</option>
@@ -69,7 +69,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
           </select>
         </label>
         <div className="grid gap-4 lg:grid-cols-2">
-          <label className="block text-sm font-semibold text-red-700">
+          <label className="block text-sm font-semibold text-error">
             Old version
             <textarea
               value={oldCode}
@@ -77,10 +77,10 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               placeholder="Paste the old configuration here"
               rows={14}
               spellCheck={false}
-              className={`${EDITOR} mt-1.5 border-red-200 focus:border-red-400 focus:ring-red-300`}
+              className={`${EDITOR} mt-1.5 border-error/30 focus:border-red-400 focus:ring-red-300`}
             />
           </label>
-          <label className="block text-sm font-semibold text-green-700">
+          <label className="block text-sm font-semibold text-ok">
             New version
             <textarea
               value={newCode}
@@ -88,7 +88,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               placeholder="Paste the new configuration here"
               rows={14}
               spellCheck={false}
-              className={`${EDITOR} mt-1.5 border-green-200 focus:border-green-400 focus:ring-green-300`}
+              className={`${EDITOR} mt-1.5 border-ok/30 focus:border-green-400 focus:ring-green-300`}
             />
           </label>
         </div>
@@ -96,43 +96,43 @@ export default function CompareView({ language, onLanguageChange }: Props) {
           type="button"
           onClick={handleCompare}
           disabled={loading}
-          className="mt-4 rounded-md bg-indigo-600 px-5 py-2 font-semibold text-white shadow-xs hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 rounded-md bg-accent px-5 py-2 text-sm font-semibold text-white hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? 'Comparing...' : 'Compare graphs'}
         </button>
-        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+        {error && <p className="mt-3 text-sm text-error">{error}</p>}
       </section>
 
       {results && diff && (
         <>
-          <section className="rounded-xl border border-slate-200/90 bg-white p-6 shadow-xs">
-            <h2 className="font-semibold text-slate-900">
+          <section className="rounded-xl border border-line/90 bg-surface p-6 ">
+            <h2 className="font-semibold text-ink">
               Comparison summary
             </h2>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="rounded bg-green-100 px-3 py-1.5 text-green-800">
+              <span className="rounded bg-ok-soft px-3 py-1.5 text-ok">
                 {diff.addedNodes.length} added nodes
               </span>
-              <span className="rounded bg-red-100 px-3 py-1.5 text-red-800">
+              <span className="rounded bg-error-soft px-3 py-1.5 text-red-800">
                 {diff.removedNodes.length} removed nodes
               </span>
               <span className="rounded bg-orange-100 px-3 py-1.5 text-orange-800">
                 {diff.rewiredNodes.length} rewired
               </span>
-              <span className="rounded bg-green-100 px-3 py-1.5 text-green-800">
+              <span className="rounded bg-ok-soft px-3 py-1.5 text-ok">
                 {diff.addedEdges.length} added edges
               </span>
-              <span className="rounded bg-red-100 px-3 py-1.5 text-red-800">
+              <span className="rounded bg-error-soft px-3 py-1.5 text-red-800">
                 {diff.removedEdges.length} removed edges
               </span>
               <span
-                className={`rounded px-3 py-1.5 ${diff.newCycles.length ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600'}`}
+                className={`rounded px-3 py-1.5 ${diff.newCycles.length ? 'bg-error-soft text-red-800' : 'bg-paper text-muted'}`}
               >
                 {diff.newCycles.length} new cycles
               </span>
             </div>
             {diff.newCycles.length > 0 && (
-              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <div className="mt-4 rounded-lg border border-error/30 bg-error-soft p-3 text-sm text-red-800">
                 <strong>The new version introduces a dependency cycle.</strong>
                 <ul className="mt-2 list-disc pl-5">
                   {diff.newCycles.map((cycle, i) => (
@@ -142,18 +142,18 @@ export default function CompareView({ language, onLanguageChange }: Props) {
               </div>
             )}
             {diff.resolvedCycles.length > 0 && (
-              <p className="mt-3 text-sm text-green-700">
+              <p className="mt-3 text-sm text-ok">
                 {diff.resolvedCycles.length} cycle(s) from the old version are resolved.
               </p>
             )}
             {diff.identical && (
-              <p className="mt-3 text-sm text-slate-500">No graph changes detected.</p>
+              <p className="mt-3 text-sm text-faint">No graph changes detected.</p>
             )}
           </section>
 
           <div className="grid gap-6 xl:grid-cols-2">
-            <section className="min-w-0 rounded-xl border border-slate-200/90 bg-white p-4 shadow-xs">
-              <h2 className="text-sm font-semibold text-red-700">
+            <section className="min-w-0 rounded-xl border border-line/90 bg-surface p-4 ">
+              <h2 className="text-sm font-semibold text-error">
                 Old version graph
               </h2>
               <DependencyGraph
@@ -163,8 +163,8 @@ export default function CompareView({ language, onLanguageChange }: Props) {
                 diff={oldHighlight}
               />
             </section>
-            <section className="min-w-0 rounded-xl border border-slate-200/90 bg-white p-4 shadow-xs">
-              <h2 className="text-sm font-semibold text-green-700">
+            <section className="min-w-0 rounded-xl border border-line/90 bg-surface p-4 ">
+              <h2 className="text-sm font-semibold text-ok">
                 New version graph
               </h2>
               <DependencyGraph
@@ -176,18 +176,18 @@ export default function CompareView({ language, onLanguageChange }: Props) {
             </section>
           </div>
 
-          <section className="rounded-xl border border-slate-200/90 bg-white p-6 text-sm text-slate-700 shadow-xs">
-            <h2 className="font-semibold text-slate-900">
+          <section className="rounded-xl border border-line/90 bg-surface p-6 text-sm text-muted ">
+            <h2 className="font-semibold text-ink">
               Changed nodes and dependencies
             </h2>
             <div className="mt-3 grid gap-4 md:grid-cols-2">
               {(
                 [
-                  ['Added nodes', diff.addedNodes, 'text-green-700'],
-                  ['Removed nodes', diff.removedNodes, 'text-red-700'],
+                  ['Added nodes', diff.addedNodes, 'text-ok'],
+                  ['Removed nodes', diff.removedNodes, 'text-error'],
                   ['Rewired', diff.rewiredNodes, 'text-orange-700'],
-                  ['Added dependencies', diff.addedEdges, 'text-green-700'],
-                  ['Removed dependencies', diff.removedEdges, 'text-red-700'],
+                  ['Added dependencies', diff.addedEdges, 'text-ok'],
+                  ['Removed dependencies', diff.removedEdges, 'text-error'],
                 ] as const
               ).map(([title, items, color]) => (
                 <div key={title}>
@@ -199,7 +199,7 @@ export default function CompareView({ language, onLanguageChange }: Props) {
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-slate-500">None</p>
+                    <p className="text-faint">None</p>
                   )}
                 </div>
               ))}

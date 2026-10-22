@@ -5,7 +5,7 @@ import {
   edgeKey,
   executionOrderNote,
   formatLocation,
-  getStatus,
+  verdict,
   isPartial,
   labelFor,
   metadataEntries,
@@ -38,21 +38,30 @@ const loc = (over: Partial<SourceLocation>): SourceLocation => ({
   ...over,
 });
 
-describe('getStatus', () => {
-  it('follows the backend valid flag', () => {
-    expect(getStatus(terraform)).toEqual({ label: 'Invalid', tone: 'error' });
-    expect(getStatus(yaml)).toEqual({ label: 'Valid', tone: 'valid' });
-    expect(getStatus(dockerfile)).toEqual({ label: 'Valid with warnings', tone: 'warning' });
+describe('verdict', () => {
+  it('answers "can I deploy?" from the backend valid flag, with counts', () => {
+    expect(verdict(terraform)).toEqual({
+      title: 'Not ready to deploy',
+      detail: '1 error to fix.',
+      tone: 'error',
+    });
+    expect(verdict(yaml)).toEqual({ title: 'Ready to deploy', detail: 'No problems found.', tone: 'valid' });
+    expect(verdict(dockerfile).title).toBe('Ready, with warnings to review');
+    expect(verdict(dockerfile).tone).toBe('warning');
   });
 
-  it('treats info-only diagnostics as valid', () => {
+  it('treats info-only diagnostics as ready, and counts them as suggestions', () => {
     const infoOnly: AnalysisResult = {
       ...yaml,
       diagnostics: [
         { code: 'DISCONNECTED_COMPONENT', severity: 'info', message: 'm', source_location: null },
       ],
     };
-    expect(getStatus(infoOnly).tone).toBe('valid');
+    expect(verdict(infoOnly)).toEqual({
+      title: 'Ready to deploy',
+      detail: 'No problems found. 1 suggestion.',
+      tone: 'valid',
+    });
   });
 });
 
