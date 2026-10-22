@@ -630,6 +630,150 @@ def _df_volatile_arg_early(finding: Finding, index: int) -> Recommendation:
     )
 
 
+# Docker's official build checks (rules/dockerfile_checks.py).
+DOCKER_CHECK_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
+    "DF_CONSISTENT_INSTRUCTION_CASING": _advice(
+        "DF_CONSISTENT_INSTRUCTION_CASING",
+        "Use one casing for all instructions",
+        "Mixed casing works but makes the file harder to read; Docker's"
+        " convention is upper case. Docker build check: "
+        "docs.docker.com/reference/build-checks/consistent-instruction-casing/",
+        "Write every instruction keyword in the same case (usually upper case).",
+    ),
+    "DF_FROM_AS_CASING": _advice(
+        "DF_FROM_AS_CASING",
+        "Write FROM and AS in the same case",
+        "Docker flags mismatched casing such as 'FROM image as name'. "
+        "Docker build check: "
+        "docs.docker.com/reference/build-checks/from-as-casing/",
+        "Use 'FROM image AS name' (or all lower case).",
+    ),
+    "DF_STAGE_NAME_CASING": _advice(
+        "DF_STAGE_NAME_CASING",
+        "Use a lower-case stage name",
+        "Stage names are case-insensitive and stored in lower case, so "
+        "capitals are misleading when referenced. Docker build check: "
+        "docs.docker.com/reference/build-checks/stage-name-casing/",
+        "Rename the stage in lower case and update FROM and COPY --from references.",
+    ),
+    "DF_RESERVED_STAGE_NAME": _advice(
+        "DF_RESERVED_STAGE_NAME",
+        "Rename the stage",
+        "'scratch' and 'context' have special meanings in FROM and COPY"
+        " --from, so a stage cannot use them. Docker build check: "
+        "docs.docker.com/reference/build-checks/reserved-stage-name/",
+        "Choose another stage name.",
+    ),
+    "DF_FROM_PLATFORM_FLAG_CONST": _advice(
+        "DF_FROM_PLATFORM_FLAG_CONST",
+        "Do not fix the platform in FROM",
+        "A constant --platform builds the same platform whatever is "
+        "requested, which breaks multi-platform builds. Docker build "
+        "check: "
+        "docs.docker.com/reference/build-checks/from-platform-flag-const-disallowed/",
+        "Remove --platform, or use $BUILDPLATFORM or $TARGETPLATFORM.",
+    ),
+    "DF_REDUNDANT_TARGET_PLATFORM": _advice(
+        "DF_REDUNDANT_TARGET_PLATFORM",
+        "Remove --platform=$TARGETPLATFORM",
+        "FROM already uses the target platform, so the flag changes "
+        "nothing. Docker build check: "
+        "docs.docker.com/reference/build-checks/redundant-target-platform/",
+        "Delete the --platform flag.",
+    ),
+    "DF_UNDEFINED_ARG_IN_FROM": _advice(
+        "DF_UNDEFINED_ARG_IN_FROM",
+        "Declare the build argument before FROM",
+        "Only ARGs declared before the first FROM can be used in FROM; "
+        "otherwise the variable is empty. Docker build check: "
+        "docs.docker.com/reference/build-checks/undefined-arg-in-from/",
+        "Add 'ARG NAME=<default>' before the first FROM.",
+    ),
+    "DF_INVALID_DEFAULT_ARG_IN_FROM": _advice(
+        "DF_INVALID_DEFAULT_ARG_IN_FROM",
+        "Give the build argument a default",
+        "Without --build-arg the variable is empty, which leaves an "
+        "invalid image reference. Docker build check: "
+        "docs.docker.com/reference/build-checks/invalid-default-arg-in-from/",
+        "Use 'ARG NAME=<default>', or ${NAME:-default} in FROM.",
+    ),
+    "DF_JSON_ARGS_RECOMMENDED": _advice(
+        "DF_JSON_ARGS_RECOMMENDED",
+        "Use the JSON form for CMD and ENTRYPOINT",
+        "In the shell form the process runs under /bin/sh -c, which "
+        "does not forward signals, so docker stop waits and then kills "
+        "it. Docker build check: "
+        "docs.docker.com/reference/build-checks/json-args-recommended/",
+        'Rewrite it as a JSON array, e.g. CMD ["node", "server.js"].',
+    ),
+    "DF_LEGACY_KEY_VALUE_FORMAT": _advice(
+        "DF_LEGACY_KEY_VALUE_FORMAT",
+        "Use the KEY=value form",
+        "The space-separated form sets only one variable and is "
+        "ambiguous when values contain spaces. Docker build check: "
+        "docs.docker.com/reference/build-checks/legacy-key-value-format/",
+        "Write ENV NAME=value (quote values with spaces).",
+    ),
+    "DF_MAINTAINER_DEPRECATED": _advice(
+        "DF_MAINTAINER_DEPRECATED",
+        "Replace MAINTAINER with a label",
+        "MAINTAINER is deprecated; the OCI label carries the same "
+        "information. Docker build check: "
+        "docs.docker.com/reference/build-checks/maintainer-deprecated/",
+        'Use LABEL org.opencontainers.image.authors="name <email>".',
+    ),
+    "DF_MULTIPLE_INSTRUCTIONS": _advice(
+        "DF_MULTIPLE_INSTRUCTIONS",
+        "Keep one CMD, ENTRYPOINT and HEALTHCHECK per stage",
+        "Only the last one takes effect, so the earlier ones are dead "
+        "code. Docker build check: "
+        "docs.docker.com/reference/build-checks/multiple-instructions-disallowed/",
+        "Delete the earlier instruction.",
+    ),
+    "DF_NO_EMPTY_CONTINUATION": _advice(
+        "DF_NO_EMPTY_CONTINUATION",
+        "Remove empty lines inside a continued instruction",
+        "Docker skips them today, but they are deprecated and will "
+        "become an error. Docker build check: "
+        "docs.docker.com/reference/build-checks/no-empty-continuation/",
+        "Delete the empty line, or end the instruction before it.",
+    ),
+    "DF_SECRETS_IN_ARG_OR_ENV": _advice(
+        "DF_SECRETS_IN_ARG_OR_ENV",
+        "Pass secrets with a secret mount",
+        "ARG and ENV values are stored in the image metadata and "
+        "history, where anyone with the image can read them. Docker "
+        "build check: "
+        "docs.docker.com/reference/build-checks/secrets-used-in-arg-or-env/",
+        "Use RUN --mount=type=secret,id=NAME and read /run/secrets/NAME.",
+    ),
+    "DF_WORKDIR_RELATIVE_PATH": _advice(
+        "DF_WORKDIR_RELATIVE_PATH",
+        "Use an absolute WORKDIR",
+        "A relative WORKDIR depends on the base image's directory, "
+        "which can change between image versions. Docker build check: "
+        "docs.docker.com/reference/build-checks/workdir-relative-path/",
+        "Start the path with /, e.g. WORKDIR /app.",
+    ),
+    "DF_EXPOSE_PROTO_CASING": _advice(
+        "DF_EXPOSE_PROTO_CASING",
+        "Write the protocol in lower case",
+        "Docker expects tcp, udp or sctp in lower case. Docker build "
+        "check: "
+        "docs.docker.com/reference/build-checks/expose-proto-casing/",
+        "Use e.g. EXPOSE 80/tcp.",
+    ),
+    "DF_EXPOSE_INVALID_FORMAT": _advice(
+        "DF_EXPOSE_INVALID_FORMAT",
+        "Expose only the container port",
+        "EXPOSE documents container ports; addresses and host ports "
+        "belong to docker run -p. Docker build check: "
+        "docs.docker.com/reference/build-checks/expose-invalid-format/",
+        "Keep only the port, e.g. EXPOSE 8080.",
+    ),
+}
+
+
 ADVISOR_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
     "DF_VOLATILE_ARG_EARLY": _df_volatile_arg_early,
     "DF_PACKAGES_AFTER_SOURCE": _advice(
@@ -779,6 +923,7 @@ SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = 
     "GHA_SCRIPT_INJECTION": _gha_script_injection,
     "GHA_UNPINNED_ACTION": _gha_unpinned_action,
     **ADVISOR_RECOMMENDATIONS,
+    **DOCKER_CHECK_RECOMMENDATIONS,
 }
 
 

@@ -13,7 +13,7 @@ import io
 import posixpath
 import re
 from collections.abc import Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from dockerfile_parse import DockerfileParser
@@ -33,6 +33,7 @@ from app.models import (
     SourceLocation,
 )
 from app.rules.dockerfile_advisor import run_dockerfile_advisor
+from app.rules.dockerfile_checks import build_checks, parse_errors
 from app.rules.dockerfile_rules import (
     RULE_APK_NO_CACHE,
     RULE_APT_UPDATE_ALONE,
@@ -659,6 +660,111 @@ def _context_findings(
     return findings, links
 
 
+# `<<EOF`, `<<-EOF`, `<<"EOF"`: a heredoc (Dockerfile syntax 1.4+) on a RUN,
+# COPY or ADD line. Its body follows on the next lines up to the delimiter.
+_HEREDOC = re.compile(r"<<(-?)([\"']?)([A-Za-z_][A-Za-z0-9_]*)\2")
+_HEREDOC_INSTRUCTIONS = ("RUN", "COPY", "ADD")
+
+
+@dataclass(frozen=True)
+class Heredoc:
+    line: int  # 1-based line of the instruction
+    keyword: str
+    body: list[tuple[int, str]]  # (1-based line, text)
+
+
+_ESCAPE_DIRECTIVE = re.compile(r"^#\s*escape\s*=\s*(\S)\s*$", re.IGNORECASE)
+
+
+def preprocess(source: str) -> tuple[str, list[Heredoc], list[int]]:
+    """Make the source match how BuildKit reads it, keeping every line number.
+
+    dockerfile-parse differs from BuildKit in two ways this fixes:
+
+    * heredocs (``RUN <<EOF`` ... ``EOF``, Dockerfile syntax 1.4+) are not
+      known to it, so every body line would read as an instruction; the bodies
+      are blanked and returned for the rules;
+    * an empty line inside a continued instruction ends the instruction for
+      it, but BuildKit skips the line and continues (the NoEmptyContinuation
+      check); such lines are replaced by the escape character and their
+      numbers returned.
+    """
+    lines = source.split("\n")
+    escape = "\\"
+    for line in lines:  # parser directives come first: `# escape=``
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            break
+        if match := _ESCAPE_DIRECTIVE.match(stripped):
+            escape = match.group(1)
+    heredocs: list[Heredoc] = []
+    empty_continuations: list[int] = []
+    continued = False
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if continued and not stripped:
+            empty_continuations.append(i + 1)
+            lines[i] = escape
+            i += 1
+            continue
+        if continued and stripped.startswith("#"):
+            i += 1  # a comment inside a continuation is skipped by both
+            continue
+        words = lines[i].split(None, 1)
+        keyword = words[0].upper() if words and not continued else ""
+        markers = _HEREDOC.findall(lines[i]) if keyword in _HEREDOC_INSTRUCTIONS else []
+        continued = stripped.endswith(escape) and not stripped.startswith("#")
+        start = i
+        i += 1
+        for dash, _, delimiter in markers:
+            continued = False
+            body = []
+            while i < len(lines):
+                text = lines[i]
+                if (text.lstrip("\t") if dash else text) == delimiter:
+                    lines[i] = ""
+                    i += 1
+                    break
+                body.append((i + 1, text))
+                lines[i] = ""
+                i += 1
+            heredocs.append(Heredoc(start + 1, keyword, body))
+    return "\n".join(lines), heredocs, empty_continuations
+
+
+def _heredoc_findings(
+    heredocs: list[Heredoc], instructions: list[DockerInstruction]
+) -> list[Finding]:
+    """Shell rules on the body of a RUN heredoc, located in the body."""
+    by_line = {i.location.start_line: i for i in instructions if i.location}
+    findings: list[Finding] = []
+    for heredoc in heredocs:
+        run = by_line.get(heredoc.line)
+        if heredoc.keyword != "RUN" or run is None:
+            continue
+        text = "\n".join(t for _, t in heredoc.body)
+        first = heredoc.body[0][0] if heredoc.body else heredoc.line
+        for start, end, line in _script_lines(text):
+            step = DockerInstruction(
+                keyword="RUN",
+                value=line,
+                location=SourceLocation(
+                    file=run.location.file if run.location else None,
+                    start_line=first + start - 1,
+                    start_column=1,
+                    end_line=first + end - 1,
+                ),
+                stage_index=run.stage_index,
+                node_id=run.node_id,
+            )
+            for finding in (f for rule in SCRIPT_RULES for f in rule(step)):
+                # The lines of one heredoc run in one layer.
+                if finding.rule_id not in (RULE_APT_UPDATE_ALONE, RULE_APK_NO_CACHE):
+                    findings.append(finding)
+    return findings
+
+
 class DockerfileAdapter:
     """SourceAdapter implementation for Dockerfiles."""
 
@@ -673,6 +779,7 @@ class DockerfileAdapter:
         # Parse from memory. Without fileobj, dockerfile-parse reads and writes
         # ./Dockerfile in the working directory, which would overwrite a real
         # file and mix up concurrent requests.
+        source, heredocs, empty_continuations = preprocess(source)
         dfp = DockerfileParser(fileobj=io.BytesIO(source.encode("utf-8")))
 
         try:
@@ -692,11 +799,25 @@ class DockerfileAdapter:
         rule_findings = [
             *run_dockerfile_rules(instructions),
             *run_dockerfile_advisor(instructions),
+            *_heredoc_findings(heredocs, instructions),
+            *build_checks(structure, instructions, empty_continuations, filename),
         ]
 
+        # Docker's parse errors, unless the line already has a syntax error.
+        taken = {
+            f.diagnostic.source_location.start_line
+            for f in extractor.findings
+            if f.diagnostic.source_location
+        }
+        syntax = [
+            f
+            for f in parse_errors(structure, filename)
+            if f.diagnostic.source_location
+            and f.diagnostic.source_location.start_line not in taken
+        ]
         result = ParseResult(
             ir=ir,
-            findings=[*extractor.findings, *rule_findings],
+            findings=[*extractor.findings, *syntax, *rule_findings],
             dependency_analysis_complete=extractor.complete,
         )
         return result, instructions

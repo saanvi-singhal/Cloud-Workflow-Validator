@@ -27,6 +27,7 @@ from app.models import (
     SourceFormat,
     SourceLocation,
 )
+from app.parsers.yaml import schema, workflow_rules
 from app.rules.github_actions_rules import run_github_actions_rules
 
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.yaml]
@@ -35,109 +36,21 @@ _DUPLICATE_KEY = re.compile(r'duplicate key "(.*?)"')
 # `secrets.X` or `secrets['X']` used as a context in an expression.
 _SECRETS_CONTEXT = re.compile(r"(?<![\w.'\"])secrets\s*[.\[]")
 
-# Keys GitHub allows; any other key makes it reject the workflow
-# (https://docs.github.com/actions/reference/workflow-syntax-for-github-actions).
-# Unlike Docker Compose, there are no `x-` extension keys.
-WORKFLOW_KEYS = frozenset(
-    {"name", "run-name", "on", "permissions", "env", "defaults", "concurrency", "jobs"}
-)
-JOB_KEYS = frozenset(
-    {
-        "name",
-        "permissions",
-        "needs",
-        "if",
-        "runs-on",
-        "snapshot",
-        "environment",
-        "concurrency",
-        "outputs",
-        "env",
-        "defaults",
-        "steps",
-        "timeout-minutes",
-        "strategy",
-        "continue-on-error",
-        "container",
-        "services",
-        "uses",
-        "with",
-        "secrets",
-    }
-)
+# Keys and events GitHub allows, taken from GitHub's own workflow schema
+# (schema.py), so they cannot fall behind it: any other key makes GitHub
+# reject the workflow. Unlike Docker Compose, there are no `x-` keys.
+WORKFLOW_KEYS = schema.mapping_keys("workflow-root")
 # The only keys a job that calls a reusable workflow (`uses:`) may have.
-REUSABLE_CALL_KEYS = frozenset(
-    {
-        "name",
-        "uses",
-        "with",
-        "secrets",
-        "strategy",
-        "needs",
-        "if",
-        "concurrency",
-        "permissions",
-    }
+REUSABLE_CALL_KEYS = schema.mapping_keys("workflow-job")
+JOB_KEYS = schema.mapping_keys("job-factory") | REUSABLE_CALL_KEYS
+STEP_KINDS = ("uses", "run", "wait", "wait-all", "cancel", "parallel")
+STEP_KEYS = frozenset().union(
+    *(
+        schema.mapping_keys(kind)
+        for kind in schema.definitions()["steps-item"]["one-of"]
+    )
 )
-STEP_KEYS = frozenset(
-    {
-        "id",
-        "if",
-        "name",
-        "uses",
-        "run",
-        "working-directory",
-        "shell",
-        "with",
-        "env",
-        "continue-on-error",
-        "timeout-minutes",
-    }
-)
-
-# Events that can trigger a workflow
-# (https://docs.github.com/actions/reference/events-that-trigger-workflows).
-# GitHub refuses a workflow whose `on` names anything else.
-KNOWN_EVENTS = frozenset(
-    {
-        "branch_protection_rule",
-        "check_run",
-        "check_suite",
-        "create",
-        "delete",
-        "deployment",
-        "deployment_status",
-        "discussion",
-        "discussion_comment",
-        "fork",
-        "gollum",
-        "image_version",
-        "issue_comment",
-        "issues",
-        "label",
-        "merge_group",
-        "milestone",
-        "page_build",
-        "project",
-        "project_card",
-        "project_column",
-        "public",
-        "pull_request",
-        "pull_request_review",
-        "pull_request_review_comment",
-        "pull_request_target",
-        "push",
-        "registry_package",
-        "release",
-        "repository_dispatch",
-        "schedule",
-        "status",
-        "watch",
-        "workflow_call",
-        "workflow_dispatch",
-        "workflow_run",
-    }
-)
+KNOWN_EVENTS = schema.mapping_keys("on-mapping-strict")
 
 
 def _position(
@@ -562,13 +475,14 @@ class _YamlExtractor:
                 label += f" ('{step['name']}')"
             if not isinstance(step, dict):
                 self._schema_error(f"{label} must be a mapping.", position, node_id)
-            elif "uses" in step and "run" in step:
+            elif len(kinds := [k for k in STEP_KINDS if k in step]) > 1:
                 self._schema_error(
-                    f"{label} has both 'uses' and 'run'; a step must have exactly one.",
+                    f"{label} has both '{kinds[0]}' and '{kinds[1]}'; a step must "
+                    "have exactly one.",
                     position,
                     node_id,
                 )
-            elif "uses" not in step and "run" not in step:
+            elif not kinds:
                 self._schema_error(
                     f"{label} has neither 'uses' nor 'run', so it does nothing. "
                     "A step must have exactly one of them.",
@@ -631,6 +545,70 @@ def _duplicate_key_finding(
     )
 
 
+def _github_checks(
+    data: Any,
+    filename: str | None,
+    existing: list[Finding],
+    job_to_id: dict[str, str],
+) -> list[Finding]:
+    """GitHub's schema (schema.py) and code rules (workflow_rules.py).
+
+    A line that already has an error from the checks above keeps that more
+    specific message instead of a second, generic one.
+    """
+    taken = {
+        f.diagnostic.source_location.start_line
+        for f in existing
+        if f.code == DiagnosticCode.YAML_SYNTAX_ERROR and f.diagnostic.source_location
+    }
+    # Steps that already have an error: their schema problems repeat it.
+    covered_steps = set()
+    jobs = data.get("jobs")
+    if isinstance(jobs, dict):
+        for job_key, job in jobs.items():
+            steps = job.get("steps") if isinstance(job, dict) else None
+            if isinstance(steps, list):
+                for i in range(len(steps)):
+                    position = _item_position(steps, i)
+                    if position and position[0] + 1 in taken:
+                        covered_steps.add(f"jobs.{job_key}.steps[{i}]")
+    findings: list[Finding] = []
+    for problem in [*schema.validate(data), *workflow_rules.check(data)]:
+        line = problem.position[0] + 1 if problem.position else None
+        if line in taken or any(
+            problem.path == step or problem.path.startswith(step + ".")
+            for step in covered_steps
+        ):
+            continue
+        if line is not None:
+            taken.add(line)
+        parts = problem.path.split(".")
+        node_id = (
+            job_to_id.get(parts[1].split("[")[0])
+            if parts[0] == "jobs" and len(parts) > 1
+            else None
+        )
+        lenient = (
+            problem.in_trigger_filter and "only allows one of" not in problem.message
+        )
+        findings.append(
+            make_finding(
+                DiagnosticCode.YAML_SYNTAX_ERROR,
+                Severity.warning if lenient else Severity.error,
+                problem.message
+                + (
+                    " GitHub's workflow schema does not allow this; GitHub may reject "
+                    "the workflow or ignore the filter."
+                    if lenient
+                    else " GitHub will reject this workflow."
+                ),
+                _position(problem.position, filename),
+                node_ids=(node_id,) if node_id else (),
+            )
+        )
+    return findings
+
+
 class YamlAdapter:
     """SourceAdapter implementation for GitHub Actions / YAML workflows."""
 
@@ -684,9 +662,14 @@ class YamlAdapter:
             if isinstance(jobs, dict)
             else []
         )
+        findings = [*duplicate_findings, *extractor.findings]
+        if isinstance(parsed, dict) and isinstance(jobs, dict):
+            findings.extend(
+                _github_checks(parsed, filename, findings, extractor.job_to_id)
+            )
         return ParseResult(
             ir=ir,
-            findings=[*duplicate_findings, *extractor.findings, *rule_findings],
+            findings=[*findings, *rule_findings],
             dependency_analysis_complete=extractor.complete,
         )
 

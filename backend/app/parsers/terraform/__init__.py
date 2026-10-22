@@ -17,6 +17,31 @@ from app.models import DiagnosticCode, Severity, SourceFormat, SourceLocation
 from app.parsers.terraform.blocks import TerraformFile, read_file
 from app.parsers.terraform.extractor import extract, extract_files
 from app.parsers.terraform.hcl_loader import HclSyntaxError, parse_hcl
+from app.parsers.terraform.validate import validate_file
+
+
+def _with_validation(
+    findings: list[Finding], files: list[TerraformFile]
+) -> list[Finding]:
+    """Add Terraform's structural errors (validate.py).
+
+    They replace the extractor's "unknown top-level block type" and "expected
+    N label(s)" warnings, which describe the same problem less precisely.
+    """
+    errors = [f for tf in files for f in validate_file(tf)]
+    kept = [
+        f
+        for f in findings
+        if not (
+            f.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT
+            and (
+                "unknown top-level block type" in f.diagnostic.message
+                or "label(s)" in f.diagnostic.message
+                or "top-level attributes are not valid" in f.diagnostic.message
+            )
+        )
+    ]
+    return [*kept, *errors]
 
 
 class TerraformAdapter:
@@ -53,7 +78,8 @@ class TerraformAdapter:
         rule_findings = run_terraform_rules([*extraction.modelled, *provider_blocks])
         return ParseResult(
             ir=extraction.ir,
-            findings=[*extraction.findings, *rule_findings],
+            findings=_with_validation(extraction.findings, [terraform_file])
+            + rule_findings,
             dependency_analysis_complete=extraction.complete,
         )
 
@@ -101,7 +127,11 @@ class TerraformAdapter:
         )
         return ParseResult(
             ir=extraction.ir,
-            findings=[*findings, *extraction.findings, *rule_findings],
+            findings=[
+                *findings,
+                *_with_validation(extraction.findings, [tf for _, tf in parsed_files]),
+                *rule_findings,
+            ],
             dependency_analysis_complete=extraction.complete,
         )
 

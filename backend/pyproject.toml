@@ -50,3 +50,11 @@ ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long user-facing messages and rule tables from GitHub/Docker/Terraform docs.
+"app/parsers/yaml/schema.py" = ["E501"]
+"app/parsers/yaml/workflow_rules.py" = ["E501"]
+"app/rules/dockerfile_checks.py" = ["E501"]
+"app/parsers/terraform/validate.py" = ["E501"]
+"tests/parsers/test_*.py" = ["E501"]

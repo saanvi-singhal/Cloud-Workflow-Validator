@@ -71,7 +71,16 @@ MODELLED_BLOCKS: dict[str, tuple[int, NodeType, str]] = {
 }
 # Valid Terraform blocks that v1 does not put in the graph (reported as info).
 UNMODELLED_BLOCKS = frozenset(
-    {"provider", "terraform", "locals", "moved", "import", "check", "removed"}
+    {
+        "provider",
+        "terraform",
+        "locals",
+        "moved",
+        "import",
+        "check",
+        "removed",
+        "ephemeral",
+    }
 )
 _ADDRESS_KIND = {
     "resource": "resource",
