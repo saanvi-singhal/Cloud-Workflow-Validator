@@ -14,6 +14,7 @@ import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { AnalysisResult, Severity } from '../types';
 import type { DiffHighlight } from '../graphDiff';
+import type { BlastRadius } from '../blastRadius';
 import {
   EDGE_TYPE_LABELS,
   cycleHighlights,
@@ -85,7 +86,18 @@ interface Props {
   onSelectNode: (id: string | null) => void;
   /** Version comparison: colour what changed (see graphDiff.ts). */
   diff?: DiffHighlight;
+  /** Blast radius of one node: colour it and everything downstream. */
+  blast?: BlastRadius;
 }
+
+// Blast radius: the changed node in red, dependents warmer the closer they are.
+const BLAST_SOURCE = { border: '#dc2626', background: '#fee2e2' };
+const BLAST_DEPTH = [
+  { border: '#ea580c', background: '#ffedd5' },
+  { border: '#d97706', background: '#fef3c7' },
+  { border: '#ca8a04', background: '#fefce8' },
+];
+const BLAST_EDGE = '#ea580c';
 
 // Comparison colours: green = added, red = removed, orange = rewired.
 const DIFF_COLORS = {
@@ -94,7 +106,13 @@ const DIFF_COLORS = {
   rewired: { border: '#ea580c', background: '#ffedd5' },
 };
 
-export default function DependencyGraph({ result, highlighted, onSelectNode, diff }: Props) {
+export default function DependencyGraph({
+  result,
+  highlighted,
+  onSelectNode,
+  diff,
+  blast,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -137,11 +155,18 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
 
     const nodes: Node[] = result.graph.nodes.map(n => {
       const p = g.node(n.id);
-      const colors = diff?.changedNodes.has(n.id)
-        ? DIFF_COLORS[diff.kind]
-        : diff?.rewiredNodes.has(n.id)
-          ? DIFF_COLORS.rewired
-          : NODE_COLORS[severities.get(n.id) ?? 'none'];
+      const depth = blast?.depthOf.get(n.id);
+      const outsideBlast = blast !== undefined && depth === undefined && n.id !== blast.source;
+      const colors =
+        blast?.source === n.id
+          ? BLAST_SOURCE
+          : depth !== undefined
+            ? BLAST_DEPTH[Math.min(depth, BLAST_DEPTH.length) - 1]
+            : diff?.changedNodes.has(n.id)
+              ? DIFF_COLORS[diff.kind]
+              : diff?.rewiredNodes.has(n.id)
+                ? DIFF_COLORS.rewired
+                : NODE_COLORS[severities.get(n.id) ?? 'none'];
       const width = nodeWidth(n.label);
       const fileBadge = n.source_location?.file ?? (n.metadata?.file as string | undefined);
       return {
@@ -176,6 +201,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
           border: `1.5px solid ${colors.border}`,
           background: colors.background,
           boxShadow: highlighted.has(n.id) ? HIGHLIGHT : '0 1px 3px rgba(0,0,0,0.06)',
+          opacity: outsideBlast ? 0.35 : 1,
         },
       };
     });
@@ -186,7 +212,12 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
       const isInterFile = Boolean(e.metadata?.is_interfile);
       if (isInterFile) interFileCount++;
 
-      const diffEdge = diff?.changedEdges.has(edgeKey(e)) ? DIFF_COLORS[diff.kind].border : null;
+      const inBlast = blast?.edges.has(edgeKey(e)) ?? false;
+      const diffEdge = inBlast
+        ? BLAST_EDGE
+        : diff?.changedEdges.has(edgeKey(e))
+          ? DIFF_COLORS[diff.kind].border
+          : null;
       const strokeColor =
         diffEdge ?? (onCycle ? CYCLE_EDGE : isInterFile ? INTERFILE_EDGE : EDGE);
       const strokeDash = onCycle ? undefined : isInterFile ? '6 3' : EDGE_DASH[e.type];
@@ -200,11 +231,12 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
             ? `${e.label} (inter-file)`
             : 'inter-file'
           : (e.label ?? undefined),
-        animated: onCycle || isInterFile,
+        animated: onCycle || isInterFile || inBlast,
         style: {
           stroke: strokeColor,
           strokeWidth: diffEdge || onCycle || isInterFile ? 2 : 1.5,
           strokeDasharray: strokeDash,
+          opacity: blast && !inBlast ? 0.3 : 1,
         },
         labelStyle: {
           fontSize: 10,
@@ -228,7 +260,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
       severitiesShown: new Set(severities.values()),
       edgeTypes: [...new Set(drawable.map(e => e.type))].sort(),
     };
-  }, [result, g, rankdir, drawable, highlighted, diff]);
+  }, [result, g, rankdir, drawable, highlighted, diff, blast]);
 
   const graphEmpty = result.graph.nodes.length === 0;
   const order = result.execution_order;
@@ -329,6 +361,13 @@ export default function DependencyGraph({ result, highlighted, onSelectNode, dif
               <span className="ml-2 font-medium text-amber-600">amber = warning</span>
             )}
             {severitiesShown.has('info') && <span className="ml-2 font-medium text-sky-600">blue = info</span>}
+          </p>
+        )}
+        {blast && (
+          <p className="flex flex-wrap gap-x-3 font-semibold">
+            <span className="text-red-600">Red = the selected item</span>
+            <span className="text-orange-600">orange to yellow = affected, nearest first</span>
+            <span className="text-slate-500">faded = not affected</span>
           </p>
         )}
         {diff && (

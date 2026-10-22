@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import type { AnalysisResult, Diagnostic, FileItem, SourceFormat, SourceLocation } from './types';
 import { analyze, analyzeMultiFile } from './api';
 import {
@@ -15,6 +15,7 @@ import MultiFilePanel from './components/MultiFilePanel';
 import CompareView from './components/CompareView';
 import PatchBlock from './components/PatchBlock';
 import AdvisorPanel from './components/AdvisorPanel';
+import { blastRadius } from './blastRadius';
 import terraformSample from './samples/main.tf?raw';
 import dockerfileSample from './samples/Dockerfile?raw';
 import yamlSample from './samples/ci.yml?raw';
@@ -198,6 +199,7 @@ export default function App() {
   const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState(false);
+  const [showBlast, setShowBlast] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -426,6 +428,11 @@ export default function App() {
 
   const status = result ? getStatus(result) : null;
   const selectedNode = result?.graph.nodes.find(n => n.id === selectedNodeId) ?? null;
+  // Everything downstream of the selected node ("click a node, see what breaks").
+  const blast = useMemo(
+    () => (result && selectedNodeId ? blastRadius(result, selectedNodeId) : undefined),
+    [result, selectedNodeId],
+  );
   const partial = result ? isPartial(result) : false;
 
   return (
@@ -710,6 +717,7 @@ export default function App() {
                 result={result}
                 highlighted={highlighted}
                 onSelectNode={selectNode}
+                blast={showBlast ? blast : undefined}
               />
 
               {selectedNode && (
@@ -719,6 +727,10 @@ export default function App() {
                   onJump={jumpTo}
                   onSelectDiagnostic={selectDiagnostic}
                   onClose={() => selectNode(null)}
+                  blast={blast}
+                  blastShown={showBlast}
+                  onToggleBlast={() => setShowBlast(on => !on)}
+                  onSelectNode={selectNode}
                 />
               )}
 

@@ -5,6 +5,8 @@ import {
   nodeDiagnostics,
   stageInstructions,
 } from '../analysis';
+import type { BlastRadius } from '../blastRadius';
+import BlastRadiusPanel from './BlastRadiusPanel';
 
 const SEVERITY_TEXT = {
   error: 'text-red-700',
@@ -18,11 +20,26 @@ interface Props {
   onJump: (location: SourceLocation | null) => void;
   onSelectDiagnostic: (index: number) => void;
   onClose: () => void;
+  /** Everything downstream of this node (see blastRadius.ts). */
+  blast?: BlastRadius;
+  blastShown?: boolean;
+  onToggleBlast?: () => void;
+  onSelectNode?: (id: string) => void;
 }
 
 // Details for the selected graph node (spec 8.2 step 7): its metadata, linked
 // diagnostics and, for Dockerfile stages, the ordered instructions.
-export default function NodeDetails({ result, node, onJump, onSelectDiagnostic, onClose }: Props) {
+export default function NodeDetails({
+  result,
+  node,
+  onJump,
+  onSelectDiagnostic,
+  onClose,
+  blast,
+  blastShown = false,
+  onToggleBlast = () => {},
+  onSelectNode = () => {},
+}: Props) {
   const where = formatLocation(node.source_location);
   const instructions = stageInstructions(node);
   const metadata = metadataEntries(node);
@@ -72,6 +89,17 @@ export default function NodeDetails({ result, node, onJump, onSelectDiagnostic, 
         >
           Defined at {where}
         </button>
+      )}
+
+      {blast && (
+        <BlastRadiusPanel
+          result={result}
+          node={node}
+          blast={blast}
+          shown={blastShown}
+          onToggle={onToggleBlast}
+          onSelectNode={onSelectNode}
+        />
       )}
 
       {interEdges.length > 0 && (

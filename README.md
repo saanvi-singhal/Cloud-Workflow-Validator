@@ -15,7 +15,8 @@ The authoritative contract is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
 5. **Show** it all in a web UI:
    - an interactive graph, clickable diagnostics and node details;
    - a Dockerfile layer and cache advisor (build speed, image size, multi-stage opportunities);
-   - a graph diff between two versions of a configuration.
+   - a graph diff between two versions of a configuration;
+   - blast radius: click a node to see everything downstream of it that a change would affect.
 
 **Static analysis only.** User configurations are never executed, Terraform is never run and no provider or registry is contacted.
 

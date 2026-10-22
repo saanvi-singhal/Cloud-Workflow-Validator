@@ -9,6 +9,10 @@ import App from './App';
 import terraformMock from './mocks/terraform.json';
 import dockerfileMock from './mocks/dockerfile.json';
 import mixedMock from './mocks/mixed.json';
+import yamlMock from './mocks/yaml.json';
+import NodeDetails from './components/NodeDetails';
+import { blastRadius } from './blastRadius';
+import type { AnalysisResult } from './types';
 
 beforeAll(() => {
   // React Flow measures its container; jsdom has no layout engine.
@@ -379,5 +383,50 @@ describe('layer and cache advisor', () => {
     expect(within(panel).getByText('Multi-stage')).toBeTruthy();
     expect(within(panel).queryByText('Cache order')).toBeNull();
     expect(within(panel).getByText('DF_PIP_NO_CACHE_DIR · line 11')).toBeTruthy();
+  });
+});
+
+describe('blast radius', () => {
+  it('lists what depends on a node, by distance, and toggles the graph view', async () => {
+    const user = userEvent.setup();
+    const onToggle = vi.fn();
+    const onSelect = vi.fn();
+    const result = yamlMock as AnalysisResult;
+    const build = result.graph.nodes.find(n => n.id === 'gha:job:build')!;
+    render(
+      <NodeDetails
+        result={result}
+        node={build}
+        onJump={() => {}}
+        onSelectDiagnostic={() => {}}
+        onClose={() => {}}
+        blast={blastRadius(result, build.id)}
+        onToggleBlast={onToggle}
+        onSelectNode={onSelect}
+      />,
+    );
+
+    const panel = screen.getByLabelText('Blast radius');
+    expect(panel.textContent).toContain('affects 2 items: 1 directly, 1 through other items');
+    expect(within(panel).getByText('Directly (1)')).toBeTruthy();
+    expect(within(panel).getByText('2 steps away (1)')).toBeTruthy();
+    await user.click(within(panel).getByRole('button', { name: 'deploy' }));
+    expect(onSelect).toHaveBeenCalledWith('gha:job:deploy');
+    await user.click(within(panel).getByRole('button', { name: 'Show on graph' }));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it('says when nothing depends on the selected node', async () => {
+    const user = userEvent.setup();
+    stubFetch(ok(terraformMock));
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+    await user.click(await screen.findByText(/ERROR · UNRESOLVED_DEPENDENCY/));
+
+    const panel = screen.getByLabelText('Blast radius');
+    expect(panel.textContent).toMatch(/Nothing in this graph depends on \S*app, so changing/);
+    expect(within(panel).queryByRole('button', { name: 'Show on graph' })).toBeNull();
   });
 });

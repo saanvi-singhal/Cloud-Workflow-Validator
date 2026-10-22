@@ -24,7 +24,10 @@ Both are read at build time (see `.env.example`).
 - Status badge, partial-analysis banner, diagnostics and suggested fixes with previews.
 - Dependency graph (React Flow, Dagre layout). Arrows point from a prerequisite to the item that depends on it. Boxes are coloured by their most severe issue, cycle edges are red and animated, and `depends_on` edges are dashed. The layout picks left-to-right or top-to-bottom, whichever fits. Full screen is available from the graph controls.
 - Clicking a diagnostic selects its text in the editor and highlights its nodes. Clicking a node shows its details: metadata, linked issues and, for Dockerfile stages, the ordered instructions, each linked to its line.
-- All graph meaning (cycles, validity, order) comes from the backend response; the UI does not re-analyse.
+- **Blast radius** ("click a node, see what breaks"): a node's details list everything that depends on it, directly or through others, grouped by distance and with the edge each is reached through. "Show on graph" colours the selected node red, the affected nodes orange to yellow (nearest first), and fades the rest. `blastRadius.ts` walks the documented edge direction (`A → B`: B depends on A) breadth-first, like the backend's `descendants`. When the analysis is partial, the panel warns that dependents may be missing.
+- **Compare versions** (graph diff): analyse an old and a new version and see both graphs, with added, removed and rewired items and any new cycle (`graphDiff.ts`).
+- **Suggested fixes** show a ready-to-apply patch (Copy / Download .patch) when the backend provides one. The **layer & cache advisor** groups Dockerfile build-speed and image-size findings.
+- Cycles, validity, order and diagnostics come from the backend response. The UI only follows edges in their documented direction (blast radius, diff); it does not re-analyse.
 
 ## Checks
 
