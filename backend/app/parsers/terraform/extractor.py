@@ -198,7 +198,9 @@ class _Extractor:
         if node_id != base_id:
             first_loc = self.declaration_locations.get(address)
             first_file = first_loc.file if first_loc and first_loc.file else None
-            curr_file = block.location.file if block.location and block.location.file else None
+            curr_file = (
+                block.location.file if block.location and block.location.file else None
+            )
             if first_file and curr_file and first_file != curr_file:
                 message = (
                     f"'{address}' is declared more than once across files "
@@ -448,10 +450,19 @@ class _Extractor:
                         if n.source_location and n.source_location.file
                     }
                 )
-                files_hint = ", ".join(f"'{f}'" for f in all_files) if all_files else "uploaded files"
-                hint = f"It is not declared in any of the uploaded files ({files_hint})."
+                files_hint = (
+                    ", ".join(f"'{f}'" for f in all_files)
+                    if all_files
+                    else "uploaded files"
+                )
+                hint = (
+                    f"It is not declared in any of the uploaded files ({files_hint})."
+                )
             else:
-                hint = "v1 analyses a single .tf file, so it must be declared in this file."
+                hint = (
+                    "v1 analyses a single .tf file, "
+                    "so it must be declared in this file."
+                )
             self.findings.append(
                 make_finding(
                     DiagnosticCode.UNRESOLVED_DEPENDENCY,

@@ -13,6 +13,10 @@ testable rule:
 Independent GitHub Actions jobs run in parallel and independent Terraform
 resources are normal, so isolated nodes are never reported, and separate
 multi-node chains are only ``info``.
+
+With several files, workflows and Dockerfiles are independent of each other
+(``files_independent``): each file has its own main component and final
+stage. Terraform files form one module, so they are judged as one graph.
 """
 
 from __future__ import annotations
@@ -36,6 +40,10 @@ class FormatPolicy:
     roots: RootSelector | None = None  # None: format has no defined root
     root_description: str = ""
     unreachable_reason: str = ""
+    # Multi-file: each file is a separate graph (workflows, Dockerfiles), so
+    # connectivity and roots are judged per file. Terraform files form one
+    # module and are judged together.
+    files_independent: bool = False
 
 
 def docker_final_stage(ir: IRGraph) -> list[str]:
@@ -62,6 +70,7 @@ POLICIES: dict[SourceFormat, FormatPolicy] = {
         execution_order_meaningful=True,
         disconnected_severity=Severity.info,
         report_isolated_nodes=False,
+        files_independent=True,
     ),
     SourceFormat.terraform: FormatPolicy(
         execution_order_meaningful=True,
@@ -78,6 +87,7 @@ POLICIES: dict[SourceFormat, FormatPolicy] = {
             "A default build only builds the stages the target stage needs, "
             "so this stage is skipped unless it is selected with --target."
         ),
+        files_independent=True,
     ),
 }
 

@@ -7,7 +7,8 @@ This is the single entry point the API layer calls::
 
 Or for multi-file analysis::
 
-    result = compile_files([(f.filename, f.content) for f in request.files], request.format)
+    files = [(f.filename, f.content) for f in request.files]
+    result = compile_files(files, request.format)
     return result.model_dump(mode="json")
 
 Stages, in order:

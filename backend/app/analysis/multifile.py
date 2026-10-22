@@ -64,6 +64,24 @@ def analyze_multifile(
                         )
                     )
 
+        # Build-context files a Dockerfile stage copies or runs (no IR node:
+        # the file is not part of the graph, so source_node names the file).
+        for node in ir.nodes:
+            context_files = node.metadata.get("context_files")
+            if not isinstance(context_files, list) or not node.source_location:
+                continue
+            for name in context_files:
+                interfile_deps.append(
+                    InterFileDependency(
+                        source_node=f"file:{name}",
+                        target_node=node.id,
+                        source_file=str(name),
+                        target_file=str(node.source_location.file),
+                        edge_type="docker_build_context",
+                        symbol=str(name),
+                    )
+                )
+
     # 2. Variable occurrences
     # Map variable_name -> dict of info
     var_dict: dict[str, dict] = {}
@@ -143,7 +161,11 @@ def analyze_multifile(
             if isinstance(ref_entries, list) and ref_entries:
                 var_dict[name]["reference_count"] += len(ref_entries)
                 for entry in ref_entries:
-                    if isinstance(entry, dict) and "location" in entry and entry["location"]:
+                    if (
+                        isinstance(entry, dict)
+                        and "location" in entry
+                        and entry["location"]
+                    ):
                         loc_dict = entry["location"]
                         var_dict[name]["locations"].append(SourceLocation(**loc_dict))
             else:
@@ -167,9 +189,7 @@ def analyze_multifile(
                         "is_duplicate": False,
                     }
                 file_name = (
-                    finding.source_location.file
-                    if finding.source_location
-                    else None
+                    finding.source_location.file if finding.source_location else None
                 )
                 if file_name:
                     var_dict[name]["referenced_files"].add(str(file_name))
@@ -186,7 +206,9 @@ def analyze_multifile(
         data = var_dict[name]
         declared = sorted(data["declared_files"])
         referenced = sorted(data["referenced_files"])
-        is_dup = data["is_duplicate"] or len(declared) > 1 or data["declaration_count"] > 1
+        is_dup = (
+            data["is_duplicate"] or len(declared) > 1 or data["declaration_count"] > 1
+        )
         is_unused = len(declared) > 0 and len(referenced) == 0
 
         if is_dup:

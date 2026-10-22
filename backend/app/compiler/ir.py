@@ -58,6 +58,18 @@ def unique_id(base: str, taken: set[str]) -> str:
     return candidate
 
 
+def scope_node_id(node_id: str, filename: str) -> str:
+    """Prefix a node ID's identity with its file, for multi-file analysis.
+
+    ``gha:job:build`` in ``release.yml`` becomes ``gha:job:release.yml:build``.
+    Used only when several *independent* files (workflows, Dockerfiles) are
+    analysed together, so that equal names in different files stay distinct.
+    Single-file IDs are never scoped.
+    """
+    prefix, kind, rest = node_id.split(ID_SEPARATOR, 2)
+    return ID_SEPARATOR.join([prefix, kind, filename, rest])
+
+
 class IRGraph(BaseModel):
     """The normalized graph for one source file."""
 

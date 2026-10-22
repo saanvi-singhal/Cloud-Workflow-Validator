@@ -24,7 +24,7 @@ from app.compiler.findings import Finding, make_finding
 from app.compiler.graph import DependencyGraph
 from app.compiler.ir import IRGraph
 from app.compiler.policy import FormatPolicy
-from app.models import DiagnosticCode, Severity
+from app.models import DiagnosticCode, Node, Severity
 
 
 def _bfs(starts: Iterable[str], neighbours: Callable[[str], Iterable[str]]) -> set[str]:
@@ -78,6 +78,10 @@ def weakly_connected_components(graph: DependencyGraph) -> list[list[str]]:
     return sorted(components, key=lambda c: (-len(c), c[0]))
 
 
+def _file_of(node: Node) -> str | None:
+    return node.source_location.file if node.source_location else None
+
+
 def component_findings(
     graph: DependencyGraph, ir: IRGraph, policy: FormatPolicy
 ) -> list[Finding]:
@@ -93,9 +97,16 @@ def component_findings(
         return []
 
     nodes = ir.node_map()
-    main = components[0]
+    # The main component is chosen per file when files are independent, so
+    # a second workflow is not reported as disconnected from the first.
+    mains: dict[str | None, list[str]] = {}
     findings: list[Finding] = []
-    for component in components[1:]:
+    for component in components:
+        group = _file_of(nodes[component[0]]) if policy.files_independent else None
+        if group not in mains:
+            mains[group] = component
+            continue
+        main = mains[group]
         if len(component) == 1 and not policy.report_isolated_nodes:
             continue
         labels = ", ".join(nodes[n].label for n in component)
@@ -136,11 +147,18 @@ def reachability_findings(
 
     nodes = ir.node_map()
     needed = set(roots) | ancestors(graph, roots)
-    root_labels = ", ".join(f"'{nodes[r].label}'" for r in roots)
     findings: list[Finding] = []
     for node_id in graph.nodes:
         if node_id in needed:
             continue
+        # Name only the roots of this node's own file when files are independent.
+        own = [
+            r
+            for r in roots
+            if not policy.files_independent
+            or _file_of(nodes[r]) == _file_of(nodes[node_id])
+        ]
+        root_labels = ", ".join(f"'{nodes[r].label}'" for r in own or roots)
         findings.append(
             make_finding(
                 DiagnosticCode.UNREACHABLE_NODE,

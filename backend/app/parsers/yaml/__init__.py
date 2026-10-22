@@ -14,7 +14,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.constructor import DuplicateKeyError
 from ruamel.yaml.error import MarkedYAMLError
 
-from app.compiler.adapters import ParseResult
+from app.compiler.adapters import ParseResult, merge_independent
 from app.compiler.findings import Finding, make_finding
 from app.compiler.ir import FORMAT_ID_PREFIX, IRGraph, make_node_id, unique_id
 from app.models import (
@@ -691,48 +691,18 @@ class YamlAdapter:
         )
 
     def parse_files(self, files: list[tuple[str, str]]) -> ParseResult:
-        """Parse multiple YAML workflow files together."""
+        """Parse several workflow files together.
+
+        GitHub runs each workflow on its own and ``needs`` only refers to jobs
+        in the same file, so equal job IDs in different files are not
+        duplicates. Each file is parsed alone, then node IDs are scoped with
+        the file name (``gha:job:release.yml:build``).
+        """
         if len(files) == 1:
             return self.parse(files[0][1], files[0][0])
-        all_nodes = []
-        all_edges = []
-        all_findings: list[Finding] = []
-        complete = True
-        taken_ids: dict[str, str] = {}
-
-        for filename, source in files:
-            res = self.parse(source, filename)
-            all_findings.extend(res.findings)
-            if not res.dependency_analysis_complete:
-                complete = False
-            if res.ir:
-                for node in res.ir.nodes:
-                    if node.id in taken_ids:
-                        prev_file = taken_ids[node.id]
-                        all_findings.append(
-                            make_finding(
-                                DiagnosticCode.DUPLICATE_NODE_ID,
-                                Severity.error,
-                                f"Job '{node.label}' is declared more than once across files "
-                                f"(first in '{prev_file}', duplicate in '{filename}').",
-                                node.source_location,
-                                details={"job": node.label},
-                            )
-                        )
-                    else:
-                        taken_ids[node.id] = filename
-                        all_nodes.append(node)
-                all_edges.extend(res.ir.edges)
-
-        ir = (
-            IRGraph(format=SourceFormat.yaml, nodes=all_nodes, edges=all_edges)
-            if all_nodes
-            else None
-        )
-        return ParseResult(
-            ir=ir,
-            findings=all_findings,
-            dependency_analysis_complete=complete,
+        return merge_independent(
+            SourceFormat.yaml,
+            [(filename, self.parse(source, filename)) for filename, source in files],
         )
 
 

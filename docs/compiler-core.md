@@ -92,6 +92,19 @@ The format is `<format prefix>:<kind>:<identity>`. No UUIDs or hashes. If the sa
 | GitHub Actions job (suggested) | `gha:job:<job_id>` |
 | Docker stage (suggested) | `docker:stage:<0-based index>` |
 
+**Multi-file requests** (`files` instead of `source`):
+
+- **Terraform:** all files form one module, so IDs are unchanged.
+- **Workflows and Dockerfiles:** each file is independent. GitHub runs each workflow on its own, and each Dockerfile is its own build. IDs are therefore scoped with the file name, for example `gha:job:release.yml:build` or `docker:stage:Dockerfile.web:0`, so equal names in different files are not duplicates. The disconnected-component and final-stage checks run per file.
+- **Single-file requests:** IDs are never scoped.
+
+**Build context** (Dockerfile mode): uploaded files that are not Dockerfiles, such as `build.sh` or `package.json`, are build context and are never parsed as Dockerfiles.
+
+- **Recognising a Dockerfile:** a file counts as a Dockerfile if its name is `Dockerfile`, `Dockerfile.*`, `*.dockerfile` or `Containerfile`, or if it has no script extension and its first instruction is `FROM`/`ARG`.
+- **COPY/ADD sources:** each literal source path is matched by base name against the uploaded files. A near-miss gives an `UNRESOLVED_DEPENDENCY` warning ("did you mean"). Any other unmatched file gives an `info` saying it was not checked. Directories and globs are skipped.
+- **Scripts run by RUN** (`RUN ./build.sh`, `RUN sh build.sh`): the script is checked with the apt rules (`DF_APT_MISSING_YES`, `DF_APT_UPGRADE`, `DF_APT_UNPINNED_PACKAGES`), at locations in the script. `DF_APT_UPDATE_ALONE` does not apply, because the lines of one script run in one layer. Scripts are read, never executed.
+- **Where links appear:** each link shows up in the stage's `metadata.context_files` and in `multifile.interfile_dependencies` with `edge_type: "docker_build_context"`.
+
 ## 4. Diagnostic codes
 
 | Code | Severity | Emitted by | Meaning |

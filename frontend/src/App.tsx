@@ -120,7 +120,7 @@ const SEVERITY_STYLES: Record<string, { card: string; title: string }> = {
 function detectLanguage(fileName: string): SourceFormat | null {
   const name = fileName.toLowerCase();
   if (name.endsWith('.tf')) return 'terraform';
-  if (name.startsWith('dockerfile') || name.endsWith('.dockerfile')) return 'dockerfile';
+  if (/^(dockerfile|containerfile)|\.(dockerfile|containerfile)$/.test(name)) return 'dockerfile';
   if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml';
   return null;
 }
@@ -204,12 +204,18 @@ export default function App() {
     setResult(null);
     setError('');
 
-    const firstDetected = detectLanguage(newFiles[0].name);
+    // Scripts and other build-context files (build.sh, package.json) don't
+    // name a format, so use the first file that does.
+    const firstDetected = newFiles.map(f => detectLanguage(f.name)).find(Boolean) ?? null;
     if (firstDetected) {
       setLanguage(firstDetected);
+      const others = newFiles.filter(f => detectLanguage(f.name) === null).length;
       setUploadNote(
         newFiles.length > 1
-          ? `Loaded ${newFiles.length} files (${firstDetected}).`
+          ? `Loaded ${newFiles.length} files (${firstDetected}).` +
+              (firstDetected === 'dockerfile' && others > 0
+                ? ` ${others} other file(s) are treated as build context: COPY sources and scripts run by RUN are checked.`
+                : '')
           : ''
       );
     } else {

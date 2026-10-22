@@ -62,7 +62,9 @@ output "vpc_id" {
 
     # variables.tf -> main.tf dependency (var.vpc_cidr or var.environment)
     var_to_main = [
-        d for d in inter_deps if d.source_file == "variables.tf" and d.target_file == "main.tf"
+        d
+        for d in inter_deps
+        if d.source_file == "variables.tf" and d.target_file == "main.tf"
     ]
     assert len(var_to_main) >= 2
     symbols_to_main = {d.symbol for d in var_to_main}
@@ -71,7 +73,9 @@ output "vpc_id" {
 
     # main.tf -> outputs.tf dependency (aws_vpc.main)
     main_to_out = [
-        d for d in inter_deps if d.source_file == "main.tf" and d.target_file == "outputs.tf"
+        d
+        for d in inter_deps
+        if d.source_file == "main.tf" and d.target_file == "outputs.tf"
     ]
     assert len(main_to_out) == 1
     assert main_to_out[0].symbol == "aws_vpc.main"
@@ -117,12 +121,16 @@ variable "db_port" {
     assert result.valid is False
     assert any(d.code == DiagnosticCode.DUPLICATE_NODE_ID for d in result.diagnostics)
 
-    dup_diag = next(d for d in result.diagnostics if d.code == DiagnosticCode.DUPLICATE_NODE_ID)
+    dup_diag = next(
+        d for d in result.diagnostics if d.code == DiagnosticCode.DUPLICATE_NODE_ID
+    )
     assert "vars_a.tf" in dup_diag.message and "vars_b.tf" in dup_diag.message
 
     assert result.multifile is not None
     assert "db_port" in result.multifile.duplicate_variables
-    var_occ = next(v for v in result.multifile.variable_occurrences if v.name == "db_port")
+    var_occ = next(
+        v for v in result.multifile.variable_occurrences if v.name == "db_port"
+    )
     assert var_occ.is_duplicate is True
     assert set(var_occ.declared_files) == {"vars_a.tf", "vars_b.tf"}
 
@@ -172,7 +180,9 @@ def test_multifile_api_endpoint():
     assert "variables.tf" in data["multifile"]["files"]
     assert "main.tf" in data["multifile"]["files"]
     assert len(data["multifile"]["interfile_dependencies"]) == 1
-    assert data["multifile"]["interfile_dependencies"][0]["source_file"] == "variables.tf"
+    assert (
+        data["multifile"]["interfile_dependencies"][0]["source_file"] == "variables.tf"
+    )
     assert data["multifile"]["interfile_dependencies"][0]["target_file"] == "main.tf"
 
 
@@ -206,20 +216,140 @@ jobs:
     assert len(result.graph.nodes) == 2
 
 
-def test_multifile_yaml_duplicate_jobs():
-    ci_yml = """
+def test_multifile_yaml_same_job_in_two_workflows_is_not_a_duplicate():
+    # GitHub runs each workflow on its own; `needs` only sees its own file.
+    workflow = """
 on: push
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
-"""
-    other_yml = """
-on: pull_request
-jobs:
+    steps:
+      - run: echo a
   test:
+    needs: build
     runs-on: ubuntu-latest
+    steps:
+      - run: echo b
 """
-    files = [("ci.yml", ci_yml), ("other.yml", other_yml)]
+    files = [("ci.yml", workflow), ("release.yml", workflow)]
     result = compile_files(files, SourceFormat.yaml)
-    assert result.valid is False
-    assert any(d.code == DiagnosticCode.DUPLICATE_NODE_ID for d in result.diagnostics)
+    assert result.valid is True
+    assert result.diagnostics == []
+    assert sorted(n.id for n in result.graph.nodes) == [
+        "gha:job:ci.yml:build",
+        "gha:job:ci.yml:test",
+        "gha:job:release.yml:build",
+        "gha:job:release.yml:test",
+    ]
+    assert {(e.source, e.target) for e in result.graph.edges} == {
+        ("gha:job:ci.yml:build", "gha:job:ci.yml:test"),
+        ("gha:job:release.yml:build", "gha:job:release.yml:test"),
+    }
+
+
+def test_multifile_yaml_findings_point_at_their_own_file():
+    ok = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n"
+    broken = "on: push\njobs:\n  b:\n    needs: missing\n    runs-on: x\n"
+    broken += "    steps:\n      - run: echo\n"
+    result = compile_files([("ok.yml", ok), ("broken.yml", broken)], SourceFormat.yaml)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.code == DiagnosticCode.UNRESOLVED_DEPENDENCY
+    assert diagnostic.source_location.file == "broken.yml"
+    [rec] = result.recommendations
+    assert rec.related_node_ids == ["gha:job:broken.yml:b"]
+
+
+def test_multifile_yaml_separate_workflows_are_not_disconnected():
+    chain = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n"
+    chain += "  b:\n    needs: a\n    runs-on: x\n    steps:\n      - run: echo\n"
+    result = compile_files([("one.yml", chain), ("two.yml", chain)], SourceFormat.yaml)
+    codes = [d.code for d in result.diagnostics]
+    assert DiagnosticCode.DISCONNECTED_COMPONENT not in codes
+
+
+DOCKERFILE = """FROM node:20 AS build
+COPY build.sh package.json ./
+COPY src ./src
+COPY buld.txt .
+RUN ./build.sh
+
+FROM nginx:1.27
+COPY --from=build /app /usr/share/nginx/html
+USER nginx
+"""
+BUILD_SH = """#!/bin/sh
+set -e
+apt-get update
+apt-get install \\
+   curl
+npm ci
+"""
+
+
+def test_multifile_dockerfile_scripts_are_build_context_not_dockerfiles():
+    files = [("Dockerfile", DOCKERFILE), ("build.sh", BUILD_SH), ("build.txt", "x")]
+    result = compile_files(files, SourceFormat.dockerfile)
+    codes = [d.code for d in result.diagnostics]
+    # The script's lines are not read as Dockerfile instructions.
+    assert DiagnosticCode.DOCKERFILE_SYNTAX_ERROR not in codes
+    assert [n.id for n in result.graph.nodes] == [
+        "docker:stage:Dockerfile:0",
+        "docker:stage:Dockerfile:1",
+    ]
+    assert result.graph.nodes[0].metadata["context_files"] == ["build.sh"]
+
+    by_message = {d.message.split(":")[0]: d for d in result.diagnostics}
+    # apt rules run on the script a RUN executes, located in the script.
+    missing_yes = next(
+        d for d in result.diagnostics if "DF_APT_MISSING_YES" in d.message
+    )
+    assert missing_yes.severity.value == "error"
+    assert missing_yes.source_location.file == "build.sh"
+    assert missing_yes.source_location.start_line == 4
+    assert "run by RUN on line 5" in missing_yes.message
+    # update and install on separate script lines run in one layer: no warning.
+    assert not any("DF_APT_UPDATE_ALONE" in d.message for d in result.diagnostics)
+    # A near-miss COPY source is a likely typo; an unknown one is only info.
+    assert by_message["COPY buld.txt"].severity.value == "warning"
+    assert "Did you mean 'build.txt'" in by_message["COPY buld.txt"].message
+    assert by_message["COPY package.json"].severity.value == "info"
+    # Directories (no extension) are not reported.
+    assert "COPY src" not in by_message
+
+    assert result.multifile is not None
+    [link] = result.multifile.interfile_dependencies
+    assert (link.source_file, link.target_file) == ("build.sh", "Dockerfile")
+    assert link.edge_type == "docker_build_context"
+
+
+def test_multifile_two_dockerfiles_are_separate_builds():
+    api = "FROM python:3.12 AS base\nFROM python:3.12\nUSER app\n"
+    web = "FROM node:20\nUSER node\n"
+    files = [("Dockerfile.api", api), ("web.dockerfile", web)]
+    result = compile_files(files, SourceFormat.dockerfile)
+    assert {n.id: n.source_location.file for n in result.graph.nodes} == {
+        "docker:stage:Dockerfile.api:0": "Dockerfile.api",
+        "docker:stage:Dockerfile.api:1": "Dockerfile.api",
+        "docker:stage:web.dockerfile:0": "web.dockerfile",
+    }
+    # Each file has its own final stage: only 'base' is unused.
+    [unused] = result.diagnostics
+    assert unused.code == DiagnosticCode.UNREACHABLE_NODE
+    assert unused.message.startswith("'base' is not needed by the final build stage")
+    assert "('stage-1')" in unused.message
+
+
+def test_multifile_dockerfile_without_any_dockerfile():
+    files = [("a.sh", "echo a"), ("b.sh", "echo b")]
+    result = compile_files(files, SourceFormat.dockerfile)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.code == DiagnosticCode.DOCKERFILE_SYNTAX_ERROR
+    assert "None of the uploaded files is a Dockerfile" in diagnostic.message
+    assert result.graph.nodes == []
+
+
+def test_multifile_dockerfile_detected_by_content():
+    # An unusual name still counts when the file starts with FROM.
+    files = [("api.docker", "FROM alpine:3.20\nUSER app\n"), ("run.sh", "echo")]
+    result = compile_files(files, SourceFormat.dockerfile)
+    assert [n.id for n in result.graph.nodes] == ["docker:stage:api.docker:0"]

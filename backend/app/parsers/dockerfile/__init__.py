@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import difflib
 import io
+import posixpath
 import re
+from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any
 
 from dockerfile_parse import DockerfileParser
 
-from app.compiler.adapters import ParseResult
+from app.compiler.adapters import ParseResult, merge_independent
 from app.compiler.findings import Finding, make_finding
 from app.compiler.ir import FORMAT_ID_PREFIX, IRGraph, make_node_id, unique_id
 from app.models import (
@@ -28,9 +31,20 @@ from app.models import (
     SourceFormat,
     SourceLocation,
 )
-from app.rules.dockerfile_rules import DockerInstruction, run_dockerfile_rules
+from app.rules.dockerfile_rules import (
+    RULE_APT_UPDATE_ALONE,
+    DockerInstruction,
+    _shell_commands,
+    _words,
+    check_apt,
+    run_dockerfile_rules,
+)
 
 ID_PREFIX = FORMAT_ID_PREFIX[SourceFormat.dockerfile]
+
+# Multi-file mode: names that mark a Dockerfile, and extensions that never do.
+DOCKERFILE_NAMES = ("dockerfile", "containerfile")
+SCRIPT_SUFFIXES = (".sh", ".bash", ".zsh", ".ps1", ".py", ".js", ".txt", ".json")
 
 # Regex to match: FROM <image> [AS <stage_name>]
 _FROM_PATTERN = re.compile(
@@ -499,12 +513,180 @@ class _DockerfileExtractor:
         )
 
 
+def is_dockerfile(filename: str, source: str) -> bool:
+    """Whether an uploaded file is a Dockerfile rather than a build-context file.
+
+    By name first (``Dockerfile``, ``Dockerfile.api``, ``api.dockerfile``,
+    ``Containerfile``). A file with any other name counts as a Dockerfile only
+    if it has no script extension and its first instruction is FROM or ARG.
+    """
+    base = posixpath.basename(filename.replace("\\", "/")).lower()
+    if base.startswith(DOCKERFILE_NAMES) or base.endswith(
+        tuple(f".{name}" for name in DOCKERFILE_NAMES)
+    ):
+        return True
+    if base.endswith(SCRIPT_SUFFIXES):
+        return False
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped.split(None, 1)[0].upper() in ("FROM", "ARG")
+    return False
+
+
+def _script_lines(source: str) -> Iterator[tuple[int, int, str]]:
+    """Logical shell lines of a script: (start_line, end_line, text), 1-based.
+
+    Joins ``\\`` continuations and skips blank lines and comments. Like the
+    RUN tokenizer, this is not a shell: functions and heredocs are not
+    interpreted.
+    """
+    start, parts = 0, []
+    for number, line in enumerate(source.splitlines(), start=1):
+        stripped = line.strip()
+        if not parts and (not stripped or stripped.startswith("#")):
+            continue
+        if not parts:
+            start = number
+        if stripped.endswith("\\"):
+            parts.append(stripped[:-1])
+            continue
+        parts.append(stripped)
+        yield start, number, " ".join(parts)
+        parts = []
+    if parts:
+        yield start, start + len(parts) - 1, " ".join(parts)
+
+
+def _copy_sources(value: str) -> list[str]:
+    """Local, literal source paths of a COPY/ADD (no stage, URL, glob or ARG)."""
+    words = _words(value)
+    if any(w.lower().startswith("--from") for w in words):
+        return []
+    paths = [w for w in words if not w.startswith("--")][:-1]
+    return [
+        p
+        for p in paths
+        if p not in (".", "./")
+        and not p.endswith("/")
+        and "://" not in p
+        and not p.startswith("git@")
+        and not any(c in p for c in "*?[$")
+    ]
+
+
+def _context_findings(
+    instructions: list[DockerInstruction],
+    context: dict[str, tuple[str, str]],
+) -> tuple[list[Finding], dict[str, list[str]]]:
+    """Check a Dockerfile against the uploaded build-context files.
+
+    ``context`` maps a base name to (uploaded file name, content). Returns
+    findings plus, per stage node, the context files it copies or runs:
+
+    - a COPY/ADD source with no uploaded file of that name: a warning if an
+      uploaded file has a very similar name (Docker fails with "file not
+      found" when the source is missing), otherwise an ``info`` that the file
+      was not checked;
+    - a script a RUN executes (``RUN ./build.sh``, ``RUN sh build.sh``) gets
+      the apt rules, located in the script, since its commands run in that
+      build step. The script is read, never executed.
+    """
+    findings: list[Finding] = []
+    links: dict[str, list[str]] = {}
+    names = sorted(context)
+
+    def link(instruction: DockerInstruction, name: str) -> None:
+        if instruction.node_id and name not in links.setdefault(
+            instruction.node_id, []
+        ):
+            links[instruction.node_id].append(name)
+
+    for instruction in instructions:
+        if instruction.keyword in ("COPY", "ADD"):
+            for source in _copy_sources(instruction.value):
+                base = posixpath.basename(source)
+                if base in context:
+                    link(instruction, context[base][0])
+                    continue
+                close = difflib.get_close_matches(base, names, n=1, cutoff=0.8)
+                if not close and "." not in base:
+                    continue  # most likely a directory
+                findings.append(
+                    make_finding(
+                        DiagnosticCode.UNRESOLVED_DEPENDENCY,
+                        Severity.warning if close else Severity.info,
+                        (
+                            f"{instruction.keyword} {source}: no uploaded file is "
+                            f"named '{base}'. Did you mean '{close[0]}'? If the file "
+                            "is missing from the build context, Docker fails with "
+                            "'file not found'."
+                        )
+                        if close
+                        else (
+                            f"{instruction.keyword} {source}: '{base}' was not "
+                            "uploaded, so it is not checked."
+                        ),
+                        instruction.location,
+                        node_ids=(instruction.node_id,) if instruction.node_id else (),
+                        details={
+                            "address": base,
+                            "known_addresses": names,
+                            "context_file": True,
+                        },
+                    )
+                )
+        elif instruction.keyword == "RUN":
+            words = {
+                posixpath.basename(w)
+                for command in _shell_commands(instruction.value)
+                for w in command
+            }
+            for base in sorted(words & set(context)):
+                filename, script = context[base]
+                link(instruction, filename)
+                line = instruction.location.start_line if instruction.location else None
+                where = f" (run by RUN on line {line})" if line else ""
+                for start, end, text in _script_lines(script):
+                    step = DockerInstruction(
+                        keyword="RUN",
+                        value=text,
+                        location=SourceLocation(
+                            file=filename,
+                            start_line=start,
+                            start_column=1,
+                            end_line=end,
+                        ),
+                        stage_index=instruction.stage_index,
+                        node_id=instruction.node_id,
+                    )
+                    for finding in check_apt(step):
+                        # Separate lines of one script run in one layer.
+                        if finding.rule_id == RULE_APT_UPDATE_ALONE:
+                            continue
+                        message = finding.diagnostic.message + where
+                        findings.append(
+                            replace(
+                                finding,
+                                diagnostic=finding.diagnostic.model_copy(
+                                    update={"message": message}
+                                ),
+                            )
+                        )
+    return findings, links
+
+
 class DockerfileAdapter:
     """SourceAdapter implementation for Dockerfiles."""
 
     format = SourceFormat.dockerfile
 
     def parse(self, source: str, filename: str | None) -> ParseResult:
+        return self._parse(source, filename)[0]
+
+    def _parse(
+        self, source: str, filename: str | None
+    ) -> tuple[ParseResult, list[DockerInstruction]]:
         # Parse from memory. Without fileobj, dockerfile-parse reads and writes
         # ./Dockerfile in the working directory, which would overwrite a real
         # file and mix up concurrent requests.
@@ -519,17 +701,80 @@ class DockerfileAdapter:
                 f"Dockerfile syntax error: {exc}",
                 SourceLocation(file=filename, start_line=1, start_column=1),
             )
-            return ParseResult(ir=None, findings=[finding])
+            return ParseResult(ir=None, findings=[finding]), []
 
         extractor = _DockerfileExtractor(filename)
         ir = extractor.extract(structure)
-        rule_findings = run_dockerfile_rules(extractor.instructions(structure))
+        instructions = extractor.instructions(structure)
+        rule_findings = run_dockerfile_rules(instructions)
 
-        return ParseResult(
+        result = ParseResult(
             ir=ir,
             findings=[*extractor.findings, *rule_findings],
             dependency_analysis_complete=extractor.complete,
         )
+        return result, instructions
+
+    def parse_files(self, files: list[tuple[str, str]]) -> ParseResult:
+        """Analyse several Dockerfiles plus the build-context files they use.
+
+        Every Dockerfile is its own build: it is parsed alone and its stage
+        IDs are scoped with its file name (``docker:stage:Dockerfile.web:0``).
+        Other files (``build.sh``, ``requirements.txt``) are build context,
+        never parsed as Dockerfiles: they are matched against COPY/ADD sources,
+        and scripts that a RUN executes are checked with the apt rules.
+        """
+        dockerfiles = [(n, s) for n, s in files if is_dockerfile(n, s)]
+        context = {
+            posixpath.basename(n.replace("\\", "/")): (n, s)
+            for n, s in files
+            if not is_dockerfile(n, s)
+        }
+        if not dockerfiles:
+            return ParseResult(
+                ir=None,
+                findings=[
+                    make_finding(
+                        DiagnosticCode.DOCKERFILE_SYNTAX_ERROR,
+                        Severity.error,
+                        "None of the uploaded files is a Dockerfile. Name it "
+                        "'Dockerfile' (or 'Dockerfile.<name>', '<name>.dockerfile'), "
+                        "or start it with FROM.",
+                        SourceLocation(file=files[0][0], start_line=1, start_column=1),
+                    )
+                ],
+            )
+
+        results = []
+        for filename, source in dockerfiles:
+            result, instructions = self._parse(source, filename)
+            extra, links = _context_findings(instructions, context)
+            ir = result.ir
+            if ir is not None and links:
+                ir = ir.model_copy(
+                    update={
+                        "nodes": [
+                            n.model_copy(
+                                update={
+                                    "metadata": {
+                                        **n.metadata,
+                                        "context_files": links[n.id],
+                                    }
+                                }
+                            )
+                            if n.id in links
+                            else n
+                            for n in ir.nodes
+                        ]
+                    }
+                )
+            results.append(
+                (filename, replace(result, ir=ir, findings=[*result.findings, *extra]))
+            )
+
+        if len(results) == 1 and not context:
+            return results[0][1]
+        return merge_independent(SourceFormat.dockerfile, results)
 
 
 ADAPTER = DockerfileAdapter()

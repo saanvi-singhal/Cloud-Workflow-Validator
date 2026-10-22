@@ -96,7 +96,9 @@ class TerraformAdapter:
         extraction = extract_files(parsed_files)
         from app.rules.terraform_rules import run_terraform_rules
 
-        rule_findings = run_terraform_rules([*extraction.modelled, *all_provider_blocks])
+        rule_findings = run_terraform_rules(
+            [*extraction.modelled, *all_provider_blocks]
+        )
         return ParseResult(
             ir=extraction.ir,
             findings=[*findings, *extraction.findings, *rule_findings],

@@ -14,7 +14,7 @@ from app.models.recommendations import Recommendation
 
 
 class InterFileDependency(BaseModel):
-    """A cross-file dependency connecting a symbol/node in one file to a node in another."""
+    """A dependency from a node or file in one file to a node in another."""
 
     model_config = ConfigDict(extra="forbid")
 

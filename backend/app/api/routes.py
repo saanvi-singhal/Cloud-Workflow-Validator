@@ -29,7 +29,9 @@ class FilePayload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    filename: str = Field(min_length=1, description="File name (e.g. 'main.tf', 'variables.tf').")
+    filename: str = Field(
+        min_length=1, description="File name (e.g. 'main.tf', 'variables.tf')."
+    )
     content: str = Field(description="Content of the file.")
 
 
@@ -79,7 +81,10 @@ async def validate_endpoint(request: ValidationRequest) -> dict[str, Any]:
         if len(request.files) == 0:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"code": "EMPTY_FILES", "message": "'files' list cannot be empty."},
+                detail={
+                    "code": "EMPTY_FILES",
+                    "message": "'files' list cannot be empty.",
+                },
             )
         total_bytes = sum(len(f.content.encode("utf-8")) for f in request.files)
         if total_bytes > MAX_SOURCE_BYTES:
@@ -133,5 +138,8 @@ async def validate_endpoint(request: ValidationRequest) -> dict[str, Any]:
 
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail={"code": "MISSING_SOURCE", "message": "Either 'source' or 'files' must be provided."},
+        detail={
+            "code": "MISSING_SOURCE",
+            "message": "Either 'source' or 'files' must be provided.",
+        },
     )

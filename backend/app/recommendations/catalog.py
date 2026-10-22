@@ -160,6 +160,16 @@ def resolve_missing_dependency(
                 source_location=finding.diagnostic.source_location,
             ),
         )
+    if finding.details.get("context_file"):
+        return _make(
+            "RESOLVE_MISSING_DEPENDENCY",
+            finding,
+            index,
+            f"Upload '{address}' to check it",
+            f"'{address}' comes from the build context, which was only partly "
+            "uploaded. Add it to the upload to have it checked; nothing else "
+            "is needed if it exists in your build context.",
+        )
     return _make(
         "RESOLVE_MISSING_DEPENDENCY",
         finding,

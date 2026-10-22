@@ -21,11 +21,11 @@ Example for a parser author::
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol, runtime_checkable
 
 from app.compiler.findings import Finding
-from app.compiler.ir import IRGraph
+from app.compiler.ir import IRGraph, scope_node_id
 from app.models import SourceFormat
 
 
@@ -42,6 +42,54 @@ class ParseResult:
     ir: IRGraph | None
     findings: list[Finding] = field(default_factory=list)
     dependency_analysis_complete: bool = True
+
+
+def merge_independent(
+    fmt: SourceFormat, results: list[tuple[str, ParseResult]]
+) -> ParseResult:
+    """Combine per-file results for files that do not share a namespace.
+
+    GitHub workflows and Dockerfiles are each analysed on their own: a job
+    ``build`` in two workflows is two different jobs. Every node ID is scoped
+    with its file (``scope_node_id``), and edges and findings are rewritten to
+    match, so the merged graph is a disjoint union of the per-file graphs.
+    """
+    nodes, edges, findings = [], [], []
+    for filename, result in results:
+        mapping: dict[str, str] = {}
+        if result.ir is not None:
+            mapping = {n.id: scope_node_id(n.id, filename) for n in result.ir.nodes}
+            nodes.extend(
+                n.model_copy(update={"id": mapping[n.id]}) for n in result.ir.nodes
+            )
+            edges.extend(
+                e.model_copy(
+                    update={
+                        "source": mapping.get(e.source, e.source),
+                        "target": mapping.get(e.target, e.target),
+                    }
+                )
+                for e in result.ir.edges
+            )
+        findings.extend(
+            replace(
+                f,
+                node_ids=tuple(mapping.get(n, n) for n in f.node_ids),
+                edge_keys=tuple(
+                    (mapping.get(s, s), mapping.get(t, t), *rest)
+                    for s, t, *rest in f.edge_keys
+                ),
+            )
+            for f in result.findings
+        )
+    parsed = any(result.ir is not None for _, result in results)
+    return ParseResult(
+        ir=IRGraph(format=fmt, nodes=nodes, edges=edges) if parsed else None,
+        findings=findings,
+        dependency_analysis_complete=all(
+            result.dependency_analysis_complete for _, result in results
+        ),
+    )
 
 
 @runtime_checkable
