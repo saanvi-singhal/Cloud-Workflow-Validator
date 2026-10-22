@@ -39,6 +39,9 @@ export function executionOrderNote(result: AnalysisResult): string | null {
   if (result.format === 'dockerfile') {
     return 'Not applicable: Dockerfile stages are not given a single execution order.';
   }
+  if (result.format === 'mixed') {
+    return 'Not shown for mixed formats: workflow jobs, Docker stages and Terraform resources are ordered differently. Analyse one format on its own to see its order.';
+  }
   if (!result.valid) return 'Not available until the errors are fixed.';
   if (isPartial(result)) {
     return 'Withheld because the analysis is partial: some dependencies may be missing.';

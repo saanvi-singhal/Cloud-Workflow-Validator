@@ -278,3 +278,50 @@ def test_single_quoted_exec_form_fix_preview():
     assert fix.proposed_change.preview == (
         "- ['nginx', '-g', 'daemon off;']\n+ [\"nginx\", \"-g\", \"daemon off;\"]"
     )
+
+
+@pytest.mark.parametrize(
+    "run, fires",
+    [
+        ("curl -sfL https://example.com/install.sh | sh -s -- -b /usr/local/bin", True),
+        ("wget -qO- https://example.com/i.sh | bash", True),
+        ("curl -fsSL https://example.com/i.sh | sudo /bin/bash", True),
+        ('sh -c "$(curl -fsSL https://example.com/i.sh)"', True),
+        ("bash <(curl -s https://example.com/i.sh)", True),
+        ("curl -fsSLo /tmp/i.sh https://example.com/i.sh && sh /tmp/i.sh", False),
+        ("curl -s https://example.com/data.json | jq .", False),
+    ],
+)
+def test_curl_pipe_shell(run, fires):
+    source = f"{PREFIX}RUN {run}\n{SUFFIX}"
+    assert ("DF_CURL_PIPE_SHELL" in fired(source)) is fires
+
+
+def test_apk_rules():
+    assert fired(f"{PREFIX}RUN apk add curl\n{SUFFIX}") == {
+        "DF_APK_NO_CACHE",
+        "DF_APK_UNPINNED_PACKAGES",
+    }
+    assert (
+        fired(f"{PREFIX}RUN apk add --no-cache curl=8.9.1-r0 jq~1.7\n{SUFFIX}") == set()
+    )
+    # Cleaning the cache in the same RUN is as good as --no-cache.
+    source = f"{PREFIX}RUN apk add jq=1.7.1-r0 && rm -rf /var/cache/apk/*\n{SUFFIX}"
+    assert fired(source) == set()
+
+
+def test_user_trivy_dockerfile():
+    source = (
+        "FROM alpine:3.20\n"
+        "RUN apk update && \\\n"
+        "    apk add --no-cache \\\n"
+        "      bash curl ca-certificates jq && \\\n"
+        "    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/"
+        "contrib/install.sh | sh -s -- -b /usr/local/bin\n"
+        "USER app\n"
+    )
+    # Same line: the warning sorts before the info.
+    assert rules(source) == [
+        ("DF_CURL_PIPE_SHELL", 2),
+        ("DF_APK_UNPINNED_PACKAGES", 2),
+    ]

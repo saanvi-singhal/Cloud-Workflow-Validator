@@ -46,6 +46,7 @@
           "attributes": [
             "bucket"
           ],
+          "file": "cyclic.tf",
           "resource_type": "aws_s3_bucket",
           "name": "logs"
         }
@@ -67,6 +68,7 @@
           "attributes": [
             "name"
           ],
+          "file": "cyclic.tf",
           "resource_type": "aws_security_group",
           "name": "app"
         }
@@ -88,6 +90,7 @@
           "attributes": [
             "name"
           ],
+          "file": "cyclic.tf",
           "resource_type": "aws_security_group",
           "name": "db"
         }
@@ -243,5 +246,6 @@
         "tf:resource:aws_s3_bucket.logs"
       ]
     }
-  ]
+  ],
+  "multifile": null
 }

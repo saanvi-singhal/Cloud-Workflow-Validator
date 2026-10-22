@@ -24,6 +24,11 @@ export default function MultiFilePanel({ summary, onJumpToFile }: Props) {
                 className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 transition-colors"
               >
                 {f}
+                {summary.file_formats?.[f] && (
+                  <span className="ml-1 text-slate-400">
+                    · {summary.file_formats[f].replace('_', ' ')}
+                  </span>
+                )}
               </button>
             ))}
           </div>

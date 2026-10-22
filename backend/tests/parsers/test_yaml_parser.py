@@ -523,6 +523,7 @@ def test_reusable_workflow_call_rejects_steps_env_and_secrets_in_with(adapter):
     assert [
         (d.source_location.start_line, d.message.split(",")[0])
         for d in result.diagnostics
+        if d.code == DiagnosticCode.YAML_SYNTAX_ERROR
     ] == [
         (7, "'steps' is not allowed in job 'deploy-infrastructure'"),
         (9, "'env' is not allowed in job 'deploy-infrastructure'"),
@@ -639,3 +640,44 @@ def test_quoted_job_key_span_covers_the_name(adapter):
     [diagnostic] = result.diagnostics
     loc = diagnostic.source_location
     assert (loc.start_line, loc.start_column, loc.end_column) == (3, 4, 9)
+
+
+@pytest.mark.parametrize(
+    "uses, fires",
+    [
+        ("aquasecurity/trivy-action@master", True),
+        ("some/action@main", True),
+        ("some/action", True),
+        ("some/action@release/v1", True),
+        ("actions/checkout@v4", False),
+        ("actions/checkout@v4.1.7", False),
+        ("actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332", False),
+        ("./.github/actions/local", False),
+        ("docker://alpine:3.20", False),
+    ],
+)
+def test_unpinned_action(adapter, uses, fires):
+    source = _workflow(f"      - uses: {uses}\n")
+    assert ("GHA_UNPINNED_ACTION" in _rule_ids(adapter, source)) is fires
+
+
+def test_unpinned_action_location_and_fix(adapter):
+    source = _workflow("      - uses: aquasecurity/trivy-action@master\n")
+    result = compile_source(source, SourceFormat.yaml, adapter=adapter)
+    [diagnostic] = result.diagnostics
+    assert diagnostic.severity.value == "warning"
+    location = diagnostic.source_location
+    assert (location.start_line, location.start_column) == (6, 15)
+    assert location.end_column == 15 + len("aquasecurity/trivy-action@master")
+    [rec] = result.recommendations
+    assert rec.related_node_ids == ["gha:job:a"]
+    assert (
+        "aquasecurity/trivy-action@<40-char commit SHA>" in rec.proposed_change.preview
+    )
+
+
+def test_unpinned_reusable_workflow(adapter):
+    source = (
+        "on: push\njobs:\n  call:\n    uses: org/repo/.github/workflows/x.yml@main\n"
+    )
+    assert _rule_ids(adapter, source) == ["GHA_UNPINNED_ACTION"]

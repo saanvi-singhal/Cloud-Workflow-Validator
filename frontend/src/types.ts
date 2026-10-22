@@ -1,7 +1,8 @@
 // Response contract of POST /api/v1/validate (docs/api.md, PROJECT_SPEC 3 and 7.3).
 // Mirrors the backend Pydantic models in backend/app/models/.
 
-export type SourceFormat = 'yaml' | 'dockerfile' | 'terraform';
+// 'mixed' is multi-file only: each file's format is detected from its name.
+export type SourceFormat = 'yaml' | 'dockerfile' | 'terraform' | 'mixed';
 export type Severity = 'error' | 'warning' | 'info';
 export type FixKind = 'deterministic' | 'judgment';
 export type Metadata = Record<string, unknown>;
@@ -81,6 +82,8 @@ export interface VariableOccurrence {
 
 export interface MultiFileSummary {
   files: string[];
+  /** format "mixed" only: what each file was analysed as. */
+  file_formats?: Record<string, string>;
   interfile_dependencies: InterFileDependency[];
   variable_occurrences: VariableOccurrence[];
   duplicate_variables: string[];

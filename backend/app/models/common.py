@@ -13,11 +13,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceFormat(str, Enum):
-    """Input formats accepted by ``POST /api/v1/validate`` (spec 7.2)."""
+    """Input formats accepted by ``POST /api/v1/validate`` (spec 7.2).
+
+    ``mixed`` is only valid with ``files``: each file's format is detected
+    from its name (and content), every group is analysed by its own parser,
+    and one combined result is returned.
+    """
 
     yaml = "yaml"
     dockerfile = "dockerfile"
     terraform = "terraform"
+    mixed = "mixed"
 
 
 class Severity(str, Enum):

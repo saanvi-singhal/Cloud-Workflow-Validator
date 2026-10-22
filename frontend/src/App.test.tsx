@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import terraformMock from './mocks/terraform.json';
 import dockerfileMock from './mocks/dockerfile.json';
+import mixedMock from './mocks/mixed.json';
 
 beforeAll(() => {
   // React Flow measures its container; jsdom has no layout engine.
@@ -241,5 +242,55 @@ describe('multifile upload and analysis', () => {
     expect(screen.getByText('Variables & Occurrences Across Files')).toBeTruthy();
     expect(screen.getAllByText('var.vpc_cidr').length).toBeGreaterThan(0);
     expect(screen.getByText('Cross-file Reference')).toBeTruthy();
+  });
+});
+
+describe('mixed formats', () => {
+  it('loads the mixed sample and sends every file with format "mixed"', async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(ok(mixedMock));
+    render(<App />);
+
+    await user.selectOptions(screen.getByLabelText('Input format'), 'mixed');
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze 4 files' }));
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const body = JSON.parse(String(init.body));
+    expect(body.format).toBe('mixed');
+    expect(body.files.map((f: { filename: string }) => f.filename)).toEqual([
+      'ci.yml',
+      'Dockerfile',
+      'install-tools.sh',
+      'scan.sh',
+    ]);
+    expect(await screen.findByText(/GHA_UNPINNED_ACTION/)).toBeTruthy();
+    expect(screen.getByText(/Not shown for mixed formats/)).toBeTruthy();
+  });
+
+  it('a new file is named right away, and a second format switches to mixed', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.selectOptions(screen.getByLabelText('Input format'), 'dockerfile');
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: '+ Add file' }));
+    const input = screen.getByLabelText('File name');
+    await user.clear(input);
+    await user.type(input, 'build.sh{Enter}');
+    expect(screen.getByText('build.sh')).toBeTruthy();
+    // A script next to a Dockerfile is build context: still Dockerfile mode.
+    expect((screen.getByLabelText('Input format') as HTMLSelectElement).value).toBe(
+      'dockerfile',
+    );
+
+    await user.dblClick(screen.getByText('file_1'));
+    const rename = screen.getByLabelText('File name');
+    await user.type(rename, 'Dockerfile{Enter}');
+    await user.click(screen.getByRole('button', { name: '+ Add file' }));
+    const third = screen.getByLabelText('File name');
+    await user.clear(third);
+    await user.type(third, 'ci.yml{Enter}');
+    expect((screen.getByLabelText('Input format') as HTMLSelectElement).value).toBe('mixed');
   });
 });

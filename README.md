@@ -22,8 +22,8 @@ The authoritative contract is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
 
 | Format | Graph | Checks (summary) |
 | :--- | :--- | :--- |
-| **GitHub Actions YAML** | Jobs; `needs` edges | Unknown `needs` jobs; cycles; duplicate keys and job IDs; missing `on`/`jobs`; unknown trigger events; unknown workflow, job and step keys; missing `runs-on`; steps without exactly one of `uses`/`run`; `secrets` in `if`; reusable-workflow call rules. Rules: script injection from untrusted event data, numbers that lose a trailing zero (`3.10` → `3.1`). |
-| **Dockerfile** | Stages; `FROM <stage>` and `COPY --from` edges | No `FROM`; unknown instructions; instructions before `FROM`; malformed `HEALTHCHECK` and `ONBUILD`; unknown or later stage references; stages the final stage does not need. Rules: exec form that is not valid JSON, `apt-get` without `-y`, unpinned base images, running as root, `apt-get update` alone, `apt-get upgrade`, `ADD` for local files, copying the whole context before installing dependencies, consecutive `RUN`s, unpinned packages. |
+| **GitHub Actions YAML** | Jobs; `needs` edges | Unknown `needs` jobs; cycles; duplicate keys and job IDs; missing `on`/`jobs`; unknown trigger events; unknown workflow, job and step keys; missing `runs-on`; steps without exactly one of `uses`/`run`; `secrets` in `if`; reusable-workflow call rules. Rules: script injection from untrusted event data, numbers that lose a trailing zero (`3.10` → `3.1`), actions pinned to a branch (`@master`). |
+| **Dockerfile** | Stages; `FROM <stage>` and `COPY --from` edges | No `FROM`; unknown instructions; instructions before `FROM`; malformed `HEALTHCHECK` and `ONBUILD`; unknown or later stage references; stages the final stage does not need. Rules: exec form that is not valid JSON, `apt-get` without `-y`, unpinned base images, running as root, `apt-get update` alone, `apt-get upgrade`, `ADD` for local files, copying the whole context before installing dependencies, consecutive `RUN`s, unpinned `apt`/`apk` packages, `apk add` without `--no-cache`, `curl … \| sh`. With several files, scripts and other build-context files are checked against `COPY` and `RUN`. |
 | **Terraform (HCL)** | `resource`, `data`, `module`, `variable`, `output`; reference and `depends_on` edges | Undeclared references; cycles; duplicate blocks; `dynamic` blocks (iterator scoping, required `for_each`/`content`). Rules: public S3 ACLs, ingress open to the internet, hard-coded secrets, publicly accessible databases. |
 
 The full lists, with rule IDs and severities, are in [docs/compiler-core.md](docs/compiler-core.md). Diagnostic codes are listed in spec section 6.1.
@@ -53,7 +53,7 @@ More detail: [docs/architecture.md](docs/architecture.md) and [docs/compiler-cor
 | Route | Purpose |
 | :--- | :--- |
 | `GET /api/v1/health` | Health check |
-| `POST /api/v1/validate` | Body `{"source": "...", "format": "yaml" \| "dockerfile" \| "terraform", "filename": "optional"}`. Returns `valid`, `format`, `diagnostics`, `graph`, `execution_order` and `recommendations`. |
+| `POST /api/v1/validate` | Body `{"source": "...", "format": "yaml" \| "dockerfile" \| "terraform", "filename": "optional"}`, or `{"files": [{"filename", "content"}, ...], "format": ...}` for several files; `"format": "mixed"` detects each file's format. Returns `valid`, `format`, `diagnostics`, `graph`, `execution_order`, `recommendations` and (multi-file) `multifile`. |
 
 An invalid configuration is still HTTP 200, with diagnostics. A malformed request is 422, and a source larger than `MAX_SOURCE_BYTES` is 413. See [docs/api.md](docs/api.md).
 
@@ -149,7 +149,7 @@ CI (`.github/workflows/ci.yml`) runs both sets on pushes and pull requests to `d
 
 ## 8. Current limitations
 
-- **One file at a time.** Terraform modules spread over several `.tf` files, reusable workflows and remote base images are not fetched or resolved, so a reference to something in another file is reported as unresolved.
+- **Only the files you upload.** Several files can be analysed together (Terraform modules, several workflows or Dockerfiles with their scripts, or a mix of formats), but reusable workflows, remote base images and modules from a registry are never fetched, so a reference to something not uploaded is reported as unresolved.
 - **Terraform:** `local.*` references, `for` expressions, `%{}` template directives, heredocs with interpolation and `replace_triggered_by` are reported as unsupported constructs. The analysis is then marked partial and the execution order is withheld.
 - **GitHub Actions:** expressions are not evaluated, so `if` conditions and matrix values do not change the graph. Only the structure GitHub validates when it loads a workflow is checked.
 - **Dockerfile:** `ARG` and `ENV` values are not substituted into stage names or images. Stages have no execution order (spec 5.3).

@@ -46,6 +46,9 @@ class MultiFileSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     files: list[str] = Field(default_factory=list)
+    # format: "mixed" only: what each file was analysed as ("yaml",
+    # "dockerfile", "terraform", "build_context" or "unknown").
+    file_formats: dict[str, str] = Field(default_factory=dict)
     interfile_dependencies: list[InterFileDependency] = Field(default_factory=list)
     variable_occurrences: list[VariableOccurrence] = Field(default_factory=list)
     duplicate_variables: list[str] = Field(default_factory=list)

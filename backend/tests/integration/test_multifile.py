@@ -353,3 +353,89 @@ def test_multifile_dockerfile_detected_by_content():
     files = [("api.docker", "FROM alpine:3.20\nUSER app\n"), ("run.sh", "echo")]
     result = compile_files(files, SourceFormat.dockerfile)
     assert [n.id for n in result.graph.nodes] == ["docker:stage:api.docker:0"]
+
+
+WORKFLOW = """on: push
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@master
+"""
+SCANNER_DOCKERFILE = """FROM alpine:3.20
+RUN apk add --no-cache curl=8.9.1-r0
+COPY scan.sh /usr/local/bin/scan.sh
+USER app
+ENTRYPOINT ["/usr/local/bin/scan.sh"]
+"""
+MAIN_TF = 'resource "aws_s3_bucket" "logs" {\n  bucket = "logs"\n}\n'
+
+
+def test_mixed_formats_are_analysed_together():
+    files = [
+        ("ci.yml", WORKFLOW),
+        ("Dockerfile", SCANNER_DOCKERFILE),
+        ("scan.sh", "#!/bin/sh\ntrivy fs .\n"),
+        ("main.tf", MAIN_TF),
+    ]
+    result = compile_files(files, SourceFormat.mixed)
+    assert result.format == SourceFormat.mixed
+    assert result.valid is True
+    assert [n.id for n in result.graph.nodes] == [
+        "docker:stage:Dockerfile:0",
+        "gha:job:scan",
+        "tf:resource:aws_s3_bucket.logs",
+    ]
+    # Each group keeps its own rules and policy.
+    [diagnostic] = result.diagnostics
+    assert diagnostic.message.startswith("[GHA_UNPINNED_ACTION]")
+    assert diagnostic.source_location.file == "ci.yml"
+    # Different kinds of order are never mixed into one list.
+    assert result.execution_order is None
+    assert result.multifile is not None
+    assert result.multifile.file_formats == {
+        "ci.yml": "yaml",
+        "Dockerfile": "dockerfile",
+        "scan.sh": "build_context",
+        "main.tf": "terraform",
+    }
+    assert [
+        (d.source_file, d.target_file) for d in result.multifile.interfile_dependencies
+    ] == [("scan.sh", "Dockerfile")]
+
+
+def test_mixed_matches_each_format_analysed_alone():
+    files = [("ci.yml", WORKFLOW), ("Dockerfile", "FROM node:latest\n")]
+    mixed = compile_files(files, SourceFormat.mixed)
+    alone = [
+        *compile_files([files[0]], SourceFormat.yaml).diagnostics,
+        *compile_files([files[1]], SourceFormat.dockerfile).diagnostics,
+    ]
+    assert sorted(d.message for d in mixed.diagnostics) == sorted(
+        d.message for d in alone
+    )
+
+
+def test_mixed_reports_files_it_cannot_analyse():
+    files = [("ci.yml", WORKFLOW), ("notes.txt", "hello")]
+    result = compile_files(files, SourceFormat.mixed)
+    notes = [d for d in result.diagnostics if d.source_location.file == "notes.txt"]
+    [note] = notes
+    assert note.code == DiagnosticCode.UNSUPPORTED_CONSTRUCT
+    assert note.severity.value == "info"
+    assert result.multifile.file_formats["notes.txt"] == "unknown"
+
+
+def test_mixed_over_http_and_single_source_rejected():
+    files = [
+        {"filename": "ci.yml", "content": WORKFLOW},
+        {"filename": "Dockerfile", "content": SCANNER_DOCKERFILE},
+    ]
+    response = client.post("/api/v1/validate", json={"format": "mixed", "files": files})
+    assert response.status_code == 200
+    assert response.json()["format"] == "mixed"
+
+    response = client.post("/api/v1/validate", json={"format": "mixed", "source": "x"})
+    assert response.status_code == 422
+    assert "needs 'files'" in response.json()["detail"]["message"]
