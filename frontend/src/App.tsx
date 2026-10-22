@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import type { AnalysisResult, Diagnostic, SourceFormat } from './types';
 import { analyze } from './api';
+import { diffResults } from './graphDiff';
 import {
   diagnosticNodeIds,
   formatLocation,
@@ -89,6 +90,13 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
   const [activeDiagnostic, setActiveDiagnostic] = useState<number | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [oldCode, setOldCode] = useState('');
+  const [newCode, setNewCode] = useState('');
+  const [oldResult, setOldResult] = useState<AnalysisResult | null>(null);
+  const [newResult, setNewResult] = useState<AnalysisResult | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
@@ -114,6 +122,35 @@ export default function App() {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCompare() {
+    if (!oldCode.trim() || !newCode.trim()) {
+      setCompareError('Enter both the old and new configurations first.');
+      return;
+    }
+
+    setCompareLoading(true);
+    setCompareError('');
+    setOldResult(null);
+    setNewResult(null);
+
+    try {
+      const [oldData, newData] = await Promise.all([
+        analyze(language, oldCode),
+        analyze(language, newCode),
+      ]);
+      setOldResult(oldData);
+      setNewResult(newData);
+      setView('results');
+      topRef.current?.scrollIntoView?.({ behavior: 'smooth' });
+    } catch (err) {
+      setCompareError(
+        err instanceof Error ? err.message : 'Comparison failed. Please try again.',
+      );
+    } finally {
+      setCompareLoading(false);
     }
   }
 
@@ -174,6 +211,7 @@ export default function App() {
   const selectedNode = result?.graph.nodes.find(n => n.id === selectedNodeId) ?? null;
   const partial = result ? isPartial(result) : false;
   const hasFixes = (result?.recommendations.length ?? 0) > 0;
+  const graphDiff = oldResult && newResult ? diffResults(oldResult, newResult) : null;
 
   return (
     <div className="min-h-screen w-full bg-linear-to-b from-indigo-50 via-slate-50 to-white text-slate-900">
@@ -251,25 +289,72 @@ export default function App() {
           {fileName && <p className="mt-3 text-sm text-slate-600">Loaded file: {fileName}</p>}
           {uploadNote && <p className="mt-1 text-sm text-amber-700">{uploadNote}</p>}
 
-          <textarea
-            ref={textareaRef}
-            value={code}
-            onChange={e => setCode(e.target.value)}
-            placeholder="Paste your configuration here, or upload a file"
-            rows={18}
-            spellCheck={false}
-            className="mt-4 w-full rounded-lg border-2 border-indigo-200 bg-slate-50 p-4 font-mono text-base leading-5 text-slate-900 focus:border-indigo-500 focus:outline-none"
-          />
+          {compareMode ? (
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <label className="mb-2 block font-bold text-red-700">Old Version</label>
+                <textarea
+                  value={oldCode}
+                  onChange={e => setOldCode(e.target.value)}
+                  placeholder="Paste the old configuration here"
+                  rows={18}
+                  spellCheck={false}
+                  className="w-full rounded-lg border-2 border-red-200 bg-slate-50 p-4 font-mono text-sm leading-5 focus:border-red-400 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block font-bold text-green-700">New Version</label>
+                <textarea
+                  value={newCode}
+                  onChange={e => setNewCode(e.target.value)}
+                  placeholder="Paste the new configuration here"
+                  rows={18}
+                  spellCheck={false}
+                  className="w-full rounded-lg border-2 border-green-200 bg-slate-50 p-4 font-mono text-sm leading-5 focus:border-green-400 focus:outline-none"
+                />
+              </div>
+            </div>
+          ) : (
+            <textarea
+              ref={textareaRef}
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              placeholder="Paste your configuration here, or upload a file"
+              rows={18}
+              spellCheck={false}
+              className="mt-4 w-full rounded-lg border-2 border-indigo-200 bg-slate-50 p-4 font-mono text-base leading-5 text-slate-900 focus:border-indigo-500 focus:outline-none"
+            />
+          )}
 
           <div className="mt-5 flex flex-wrap items-center gap-4">
             <button
-              onClick={handleAnalyze}
-              disabled={loading}
-              className="rounded-lg bg-linear-to-r from-indigo-600 to-purple-600 px-8 py-3 text-lg font-bold text-white shadow-md hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => {
+                setCompareMode(value => !value);
+                setCompareError('');
+                setError('');
+              }}
+              className="rounded-lg border-2 border-purple-500 bg-white px-5 py-3 font-semibold text-purple-700 hover:bg-purple-50"
             >
-              {loading ? 'Analyzing...' : 'Analyze'}
+              {compareMode ? 'Single Version' : 'Compare Versions'}
             </button>
-            {result && (
+            {compareMode ? (
+              <button
+                onClick={handleCompare}
+                disabled={compareLoading}
+                className="rounded-lg bg-purple-600 px-8 py-3 text-lg font-bold text-white hover:bg-purple-700 disabled:opacity-60"
+              >
+                {compareLoading ? 'Comparing...' : 'Compare Graphs'}
+              </button>
+            ) : (
+              <button
+                onClick={handleAnalyze}
+                disabled={loading}
+                className="rounded-lg bg-linear-to-r from-indigo-600 to-purple-600 px-8 py-3 text-lg font-bold text-white shadow-md hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? 'Analyzing...' : 'Analyze'}
+              </button>
+            )}
+            {!compareMode && result && (
               <button
                 onClick={() => setView('results')}
                 className="rounded-lg border-2 border-purple-500 bg-white px-5 py-2.5 text-base font-semibold text-purple-700 hover:bg-purple-50"
@@ -278,6 +363,7 @@ export default function App() {
               </button>
             )}
           </div>
+          {compareError && <p className="mt-3 text-red-700">{compareError}</p>}
         </section>
 
         {loading && (
@@ -298,8 +384,83 @@ export default function App() {
         )}
       </main>
 
+      {view === 'results' && compareMode && oldResult && newResult && graphDiff && (
+        <main className="w-full px-4 py-6">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <button
+              onClick={() => setView('editor')}
+              className="rounded-lg bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-700"
+            >
+              Back to comparison editor
+            </button>
+            <button
+              onClick={() => { setView('editor'); setCompareMode(true); }}
+              className="rounded-lg border-2 border-purple-500 bg-white px-5 py-2.5 font-semibold text-purple-700 hover:bg-purple-50"
+            >
+              Edit versions
+            </button>
+          </div>
+
+          <section className="mb-6 rounded-2xl bg-white p-5 shadow-lg ring-1 ring-indigo-100">
+            <h2 className="text-xl font-bold">Comparison summary</h2>
+            <div className="mt-3 flex flex-wrap gap-3 text-sm font-semibold">
+              <span className="rounded-lg bg-green-100 px-4 py-2 text-green-800">{graphDiff.addedNodes.length} added nodes</span>
+              <span className="rounded-lg bg-red-100 px-4 py-2 text-red-800">{graphDiff.removedNodes.length} removed nodes</span>
+              <span className="rounded-lg bg-orange-100 px-4 py-2 text-orange-800">{graphDiff.rewiredNodes.length} rewired resources</span>
+              <span className="rounded-lg bg-green-100 px-4 py-2 text-green-800">{graphDiff.addedEdges.length} added edges</span>
+              <span className="rounded-lg bg-red-100 px-4 py-2 text-red-800">{graphDiff.removedEdges.length} removed edges</span>
+              <span className={`rounded-lg px-4 py-2 ${graphDiff.newCycles.length ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'}`}>{graphDiff.newCycles.length} new cycle diagnostics</span>
+            </div>
+            {graphDiff.newCycles.length > 0 && (
+              <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-red-800">
+                <strong>Warning: new dependency cycle diagnostic(s)</strong>
+                <ul className="mt-2 list-disc pl-5">
+                  {graphDiff.newCycles.map((cycle, index) => <li key={`${cycle.code}-${index}`}>{cycle.message}</li>)}
+                </ul>
+              </div>
+            )}
+            {graphDiff.identical && <p className="mt-3 text-slate-600">No graph changes detected.</p>}
+          </section>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <section className="min-w-0 rounded-2xl bg-white p-4 shadow-lg ring-1 ring-red-200">
+              <h2 className="mb-3 text-lg font-bold text-red-700">Old Version Graph</h2>
+              <DependencyGraph
+                result={oldResult}
+                highlighted={new Set()}
+                onSelectNode={() => {}}
+                removedNodeIds={new Set(graphDiff.removedNodes)}
+                rewiredNodeIds={new Set(graphDiff.rewiredNodes)}
+                removedEdgeKeys={new Set(graphDiff.removedEdges)}
+              />
+            </section>
+            <section className="min-w-0 rounded-2xl bg-white p-4 shadow-lg ring-1 ring-green-200">
+              <h2 className="mb-3 text-lg font-bold text-green-700">New Version Graph</h2>
+              <DependencyGraph
+                result={newResult}
+                highlighted={new Set()}
+                onSelectNode={() => {}}
+                addedNodeIds={new Set(graphDiff.addedNodes)}
+                rewiredNodeIds={new Set(graphDiff.rewiredNodes)}
+                addedEdgeKeys={new Set(graphDiff.addedEdges)}
+              />
+            </section>
+          </div>
+
+          <section className="mt-6 rounded-2xl bg-white p-5 shadow-lg ring-1 ring-indigo-100">
+            <h2 className="text-xl font-bold">Changed resources and dependencies</h2>
+            <div className="mt-3 grid gap-4 md:grid-cols-2">
+              <div><h3 className="font-semibold text-green-700">Added nodes</h3>{graphDiff.addedNodes.length ? <ul className="list-disc pl-5">{graphDiff.addedNodes.map(id => <li key={id}>{id}</li>)}</ul> : <p className="text-slate-500">None</p>}</div>
+              <div><h3 className="font-semibold text-red-700">Removed nodes</h3>{graphDiff.removedNodes.length ? <ul className="list-disc pl-5">{graphDiff.removedNodes.map(id => <li key={id}>{id}</li>)}</ul> : <p className="text-slate-500">None</p>}</div>
+              <div><h3 className="font-semibold text-orange-700">Rewired resources</h3>{graphDiff.rewiredNodes.length ? <ul className="list-disc pl-5">{graphDiff.rewiredNodes.map(id => <li key={id}>{id}</li>)}</ul> : <p className="text-slate-500">None</p>}</div>
+              <div><h3 className="font-semibold">Removed dependencies</h3>{graphDiff.removedEdges.length ? <ul className="list-disc pl-5">{graphDiff.removedEdges.map(key => <li key={key}>{key}</li>)}</ul> : <p className="text-slate-500">None</p>}</div>
+            </div>
+          </section>
+        </main>
+      )}
+
       {/* ---------------- Page 2: the big graph and the results ---------------- */}
-      {view === 'results' && result && status && (
+      {view === 'results' && result && status && !compareMode && (
         <main className="w-full px-4 py-6">
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <button

@@ -80,9 +80,22 @@ interface Props {
   /** Nodes to ring, e.g. the selected node or a clicked diagnostic's nodes. */
   highlighted: ReadonlySet<string>;
   onSelectNode: (id: string | null) => void;
+  /** Diff highlighting is optional so normal analysis remains unchanged. */
+  addedNodeIds?: ReadonlySet<string>;
+  removedNodeIds?: ReadonlySet<string>;
+  rewiredNodeIds?: ReadonlySet<string>;
+  addedEdgeKeys?: ReadonlySet<string>;
+  removedEdgeKeys?: ReadonlySet<string>;
 }
 
-export default function DependencyGraph({ result, highlighted, onSelectNode }: Props) {
+export default function DependencyGraph({
+  result, highlighted, onSelectNode,
+  addedNodeIds = new Set<string>(),
+  removedNodeIds = new Set<string>(),
+  rewiredNodeIds = new Set<string>(),
+  addedEdgeKeys = new Set<string>(),
+  removedEdgeKeys = new Set<string>(),
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -125,7 +138,14 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
 
     const nodes: Node[] = result.graph.nodes.map(n => {
       const p = g.node(n.id);
-      const colors = NODE_COLORS[severities.get(n.id) ?? 'none'];
+      const diffColor = addedNodeIds.has(n.id)
+        ? { border: '#16a34a', background: '#dcfce7' }
+        : removedNodeIds.has(n.id)
+          ? { border: '#dc2626', background: '#fee2e2' }
+          : rewiredNodeIds.has(n.id)
+            ? { border: '#ea580c', background: '#ffedd5' }
+            : null;
+      const colors = diffColor ?? NODE_COLORS[severities.get(n.id) ?? 'none'];
       const width = nodeWidth(n.label);
       return {
         id: n.id,
@@ -159,22 +179,29 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
     });
 
     const edges: Edge[] = drawable.map(e => {
-      const onCycle = cycles.edges.has(edgeKey(e));
+      const key = edgeKey(e);
+      const onCycle = cycles.edges.has(key);
+      const diffEdgeColor = addedEdgeKeys.has(key)
+        ? '#16a34a'
+        : removedEdgeKeys.has(key)
+          ? '#dc2626'
+          : null;
+      const stroke = diffEdgeColor ?? (onCycle ? CYCLE_EDGE : EDGE);
       return {
-        id: edgeKey(e),
+        id: key,
         source: e.source,
         target: e.target,
         label: e.label ?? undefined,
         animated: onCycle,
         style: {
-          stroke: onCycle ? CYCLE_EDGE : EDGE,
-          strokeWidth: onCycle ? 3 : 2,
+          stroke,
+          strokeWidth: diffEdgeColor || onCycle ? 3 : 2,
           strokeDasharray: EDGE_DASH[e.type],
         },
         labelStyle: { fontSize: 12, fontWeight: 600 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: onCycle ? CYCLE_EDGE : EDGE,
+          color: stroke,
           width: 22,
           height: 22,
         },
@@ -188,7 +215,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
       severitiesShown: new Set(severities.values()),
       edgeTypes: [...new Set(drawable.map(e => e.type))].sort(),
     };
-  }, [result, g, rankdir, drawable, highlighted]);
+  }, [result, g, rankdir, drawable, highlighted, addedNodeIds, removedNodeIds, rewiredNodeIds, addedEdgeKeys, removedEdgeKeys]);
 
   const graphEmpty = result.graph.nodes.length === 0;
   const order = result.execution_order;
@@ -280,6 +307,13 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
             {severitiesShown.has('info') && (
               <span className="ml-2 font-semibold text-sky-600">blue = info</span>
             )}
+          </p>
+        )}
+        {(addedNodeIds.size > 0 || removedNodeIds.size > 0 || rewiredNodeIds.size > 0 || addedEdgeKeys.size > 0 || removedEdgeKeys.size > 0) && (
+          <p className="flex flex-wrap gap-x-3 font-semibold">
+            <span className="text-green-700">Green = added</span>
+            <span className="text-red-700">Red = removed</span>
+            <span className="text-orange-700">Orange = rewired</span>
           </p>
         )}
         {hasCycle && (
