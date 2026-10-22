@@ -30,22 +30,25 @@ const STATUS_STYLES: Record<StatusTone, string> = {
 
 const FEATURES = [
   {
-    icon: '🕸️',
+    step: '1',
     title: 'Dependency graph',
     text: 'See how every resource, stage or task connects.',
     style: 'border-indigo-500 bg-indigo-50',
+    badge: 'bg-indigo-600',
   },
   {
-    icon: '🔍',
+    step: '2',
     title: 'Issue detection',
     text: 'Catch cycles and missing references before deploying.',
     style: 'border-rose-500 bg-rose-50',
+    badge: 'bg-rose-600',
   },
   {
-    icon: '🛠️',
+    step: '3',
     title: 'Suggested fixes',
     text: 'Get clear recommendations with a preview of the change.',
     style: 'border-emerald-500 bg-emerald-50',
+    badge: 'bg-emerald-600',
   },
 ];
 
@@ -173,10 +176,10 @@ export default function App() {
   const hasFixes = (result?.recommendations.length ?? 0) > 0;
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-indigo-50 via-slate-50 to-white text-slate-900">
+    <div className="min-h-screen w-full bg-linear-to-b from-indigo-50 via-slate-50 to-white text-slate-900">
       <div ref={topRef} />
       <header
-        className={`bg-linear-to-r from-indigo-600 via-purple-600 to-pink-500 px-8 text-center text-white shadow-lg ${
+        className={`w-full bg-linear-to-r from-indigo-600 via-purple-600 to-pink-500 px-4 text-center text-white shadow-lg ${
           view === 'results' ? 'py-6' : 'py-14'
         }`}
       >
@@ -187,18 +190,22 @@ export default function App() {
       </header>
 
       {/* ---------------- Page 1: the editor ---------------- */}
-      <main className={`mx-auto max-w-4xl p-6 sm:p-8 ${view === 'editor' ? '' : 'hidden'}`}>
-        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+      <main className={`w-full px-4 py-6 ${view === 'editor' ? '' : 'hidden'}`}>
+        <div className="mb-6 grid gap-4 sm:grid-cols-3">
           {FEATURES.map(f => (
             <div key={f.title} className={`rounded-xl border-t-4 p-5 shadow-sm ${f.style}`}>
-              <div className="text-3xl">{f.icon}</div>
+              <span
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold text-white ${f.badge}`}
+              >
+                {f.step}
+              </span>
               <h3 className="mt-2 text-lg font-bold text-slate-900">{f.title}</h3>
               <p className="mt-1 text-base text-slate-700">{f.text}</p>
             </div>
           ))}
         </div>
 
-        <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100 sm:p-8">
+        <section className="w-full rounded-2xl bg-white p-5 shadow-lg ring-1 ring-indigo-100 sm:p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <label className="text-base font-semibold text-slate-800">
               Input format
@@ -215,9 +222,9 @@ export default function App() {
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-lg border-2 border-indigo-500 bg-white px-4 py-2 text-base font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50"
+                className="rounded-lg border-2 border-indigo-500 bg-white px-5 py-2 text-base font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50"
               >
-                <span aria-hidden="true">📁</span> Upload file
+                Upload file
               </button>
               <button
                 onClick={() => {
@@ -226,9 +233,9 @@ export default function App() {
                   setUploadNote('');
                   setError('');
                 }}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-base font-semibold text-white shadow-sm hover:bg-emerald-600"
+                className="rounded-lg bg-emerald-500 px-5 py-2 text-base font-semibold text-white shadow-sm hover:bg-emerald-600"
               >
-                <span aria-hidden="true">✨</span> Load sample
+                Load sample
               </button>
             </div>
           </div>
@@ -249,7 +256,7 @@ export default function App() {
             value={code}
             onChange={e => setCode(e.target.value)}
             placeholder="Paste your configuration here, or upload a file"
-            rows={16}
+            rows={18}
             spellCheck={false}
             className="mt-4 w-full rounded-lg border-2 border-indigo-200 bg-slate-50 p-4 font-mono text-base leading-5 text-slate-900 focus:border-indigo-500 focus:outline-none"
           />
@@ -274,7 +281,7 @@ export default function App() {
         </section>
 
         {loading && (
-          <section className="mt-6 flex flex-col items-center justify-center rounded-2xl bg-white p-8 text-center shadow-lg ring-1 ring-indigo-100">
+          <section className="mt-6 flex w-full flex-col items-center justify-center rounded-2xl bg-white p-8 text-center shadow-lg ring-1 ring-indigo-100">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
             <h2 className="mt-4 text-xl font-bold text-slate-900">Analyzing your configuration...</h2>
             <p className="mt-1 text-base text-slate-600">
@@ -284,9 +291,8 @@ export default function App() {
         )}
 
         {!loading && error && (
-          <section className="mt-6 flex flex-col items-center justify-center rounded-2xl border-2 border-red-300 bg-red-50 p-8 text-center">
-            <div className="text-4xl">⚠️</div>
-            <h2 className="mt-3 text-xl font-bold text-red-700">Couldn't analyze</h2>
+          <section className="mt-6 flex w-full flex-col items-center justify-center rounded-2xl border-2 border-red-300 bg-red-50 p-8 text-center">
+            <h2 className="text-xl font-bold text-red-700">Couldn't analyze</h2>
             <p className="mt-1 max-w-lg text-base text-red-700">{error}</p>
           </section>
         )}
@@ -294,13 +300,13 @@ export default function App() {
 
       {/* ---------------- Page 2: the big graph and the results ---------------- */}
       {view === 'results' && result && status && (
-        <main className="mx-auto max-w-7xl p-6 sm:p-8">
+        <main className="w-full px-4 py-6">
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
             <button
               onClick={() => setView('editor')}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-base font-semibold text-white shadow-sm hover:bg-indigo-700"
+              className="rounded-lg bg-indigo-600 px-5 py-2.5 text-base font-semibold text-white shadow-sm hover:bg-indigo-700"
             >
-              <span aria-hidden="true">←</span> Back to editor
+              Back to editor
             </button>
             <span className={`rounded-full px-5 py-2 text-lg font-bold ${STATUS_STYLES[status.tone]}`}>
               {status.label}
@@ -316,7 +322,7 @@ export default function App() {
           )}
 
           <div className="grid gap-6 xl:grid-cols-3">
-            <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100 xl:col-span-2">
+            <section className="rounded-2xl bg-white p-5 shadow-lg ring-1 ring-indigo-100 xl:col-span-2">
               <DependencyGraph
                 result={result}
                 highlighted={highlighted}
@@ -342,7 +348,7 @@ export default function App() {
           </div>
 
           <div className={`mt-6 grid gap-6 ${hasFixes ? 'lg:grid-cols-2' : ''}`}>
-            <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100">
+            <section className="rounded-2xl bg-white p-5 shadow-lg ring-1 ring-indigo-100">
               <h2 className="text-xl font-bold text-slate-900">Diagnostics</h2>
               {result.diagnostics.length === 0 && (
                 <p className="mt-2 text-base text-slate-600">No issues found.</p>
@@ -391,7 +397,7 @@ export default function App() {
             </section>
 
             {hasFixes && (
-              <section className="rounded-2xl bg-white p-6 shadow-lg ring-1 ring-indigo-100">
+              <section className="rounded-2xl bg-white p-5 shadow-lg ring-1 ring-indigo-100">
                 <h2 className="text-xl font-bold text-slate-900">Suggested fixes</h2>
                 {result.recommendations.map(r => (
                   <div
