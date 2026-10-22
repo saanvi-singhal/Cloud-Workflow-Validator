@@ -93,6 +93,7 @@ def test_analysis_result_matches_spec_response_shape():
         "graph": {"nodes": [], "edges": []},
         "execution_order": None,
         "recommendations": [],
+        "multifile": None,
     }
 
 

@@ -690,5 +690,50 @@ class YamlAdapter:
             dependency_analysis_complete=extractor.complete,
         )
 
+    def parse_files(self, files: list[tuple[str, str]]) -> ParseResult:
+        """Parse multiple YAML workflow files together."""
+        if len(files) == 1:
+            return self.parse(files[0][1], files[0][0])
+        all_nodes = []
+        all_edges = []
+        all_findings: list[Finding] = []
+        complete = True
+        taken_ids: dict[str, str] = {}
+
+        for filename, source in files:
+            res = self.parse(source, filename)
+            all_findings.extend(res.findings)
+            if not res.dependency_analysis_complete:
+                complete = False
+            if res.ir:
+                for node in res.ir.nodes:
+                    if node.id in taken_ids:
+                        prev_file = taken_ids[node.id]
+                        all_findings.append(
+                            make_finding(
+                                DiagnosticCode.DUPLICATE_NODE_ID,
+                                Severity.error,
+                                f"Job '{node.label}' is declared more than once across files "
+                                f"(first in '{prev_file}', duplicate in '{filename}').",
+                                node.source_location,
+                                details={"job": node.label},
+                            )
+                        )
+                    else:
+                        taken_ids[node.id] = filename
+                        all_nodes.append(node)
+                all_edges.extend(res.ir.edges)
+
+        ir = (
+            IRGraph(format=SourceFormat.yaml, nodes=all_nodes, edges=all_edges)
+            if all_nodes
+            else None
+        )
+        return ParseResult(
+            ir=ir,
+            findings=all_findings,
+            dependency_analysis_complete=complete,
+        )
+
 
 ADAPTER = YamlAdapter()

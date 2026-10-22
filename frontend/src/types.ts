@@ -60,6 +60,33 @@ export interface Recommendation {
   related_node_ids: string[];
 }
 
+export interface InterFileDependency {
+  source_node: string;
+  target_node: string;
+  source_file: string;
+  target_file: string;
+  edge_type: string;
+  symbol: string | null;
+}
+
+export interface VariableOccurrence {
+  name: string;
+  declared_files: string[];
+  referenced_files: string[];
+  total_occurrences: number;
+  is_duplicate: boolean;
+  is_unused: boolean;
+  locations: SourceLocation[];
+}
+
+export interface MultiFileSummary {
+  files: string[];
+  interfile_dependencies: InterFileDependency[];
+  variable_occurrences: VariableOccurrence[];
+  duplicate_variables: string[];
+  unused_variables: string[];
+}
+
 export interface AnalysisResult {
   valid: boolean;
   format: SourceFormat;
@@ -67,4 +94,11 @@ export interface AnalysisResult {
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
   execution_order: string[] | null;
   recommendations: Recommendation[];
+  multifile?: MultiFileSummary | null;
+}
+
+export interface FileItem {
+  id: string;
+  name: string;
+  content: string;
 }

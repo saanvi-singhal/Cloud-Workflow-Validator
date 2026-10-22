@@ -66,3 +66,36 @@ export async function analyze(
 
   return (await response.json()) as AnalysisResult;
 }
+
+export async function analyzeMultiFile(
+  format: SourceFormat,
+  files: { filename: string; content: string }[],
+): Promise<AnalysisResult> {
+  if (USE_MOCK) {
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return pickMock(format, files.map(f => f.content).join('\n'));
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/api/v1/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, files }),
+    });
+  } catch {
+    throw new Error("Can't reach the server. Check that the backend is running and try again.");
+  }
+
+  if (response.status === 413) {
+    throw new Error('The file is too large to analyse.');
+  }
+  if (response.status >= 400 && response.status < 500) {
+    throw new Error(`The server rejected the request (${response.status}). Check the selected format.`);
+  }
+  if (!response.ok) {
+    throw new Error(`The server returned an error (${response.status}). Please try again.`);
+  }
+
+  return (await response.json()) as AnalysisResult;
+}

@@ -28,19 +28,30 @@ export default function NodeDetails({ result, node, onJump, onSelectDiagnostic, 
   const metadata = metadataEntries(node);
   const issues = nodeDiagnostics(result, node.id);
   const lineLocation = (start: number, end: number): SourceLocation => ({
-    file: null,
+    file: node.source_location?.file ?? null,
     start_line: start,
     start_column: null,
     end_line: end,
     end_column: null,
   });
 
+  const interEdges = result.graph.edges.filter(
+    e => (e.source === node.id || e.target === node.id) && Boolean(e.metadata?.is_interfile)
+  );
+
   return (
     <section className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/40 p-4 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-medium uppercase tracking-wide text-indigo-600">
-            {node.type}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-indigo-600">
+              {node.type}
+            </span>
+            {node.source_location?.file && (
+              <span className="rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-800">
+                {node.source_location.file}
+              </span>
+            )}
           </div>
           <h3 className="break-all font-semibold text-slate-900">{node.label}</h3>
           <div className="break-all font-mono text-xs text-slate-500">{node.id}</div>
@@ -61,6 +72,31 @@ export default function NodeDetails({ result, node, onJump, onSelectDiagnostic, 
         >
           Defined at {where}
         </button>
+      )}
+
+      {interEdges.length > 0 && (
+        <div className="mt-3">
+          <div className="font-medium text-slate-800">Inter-file Dependencies</div>
+          <ul className="mt-1 space-y-1 text-xs">
+            {interEdges.map((e, idx) => {
+              const isSource = e.source === node.id;
+              const otherNodeId = isSource ? e.target : e.source;
+              const otherNode = result.graph.nodes.find(n => n.id === otherNodeId);
+              const otherFile = isSource
+                ? (e.metadata?.target_file as string)
+                : (e.metadata?.source_file as string);
+              return (
+                <li key={idx} className="flex items-center gap-1.5 text-slate-700">
+                  <span className="font-semibold text-indigo-700">
+                    {isSource ? 'Required by:' : 'Prerequisite from:'}
+                  </span>
+                  <span className="font-mono text-indigo-900">{otherFile ?? 'other file'}</span>
+                  <span>({otherNode?.label ?? otherNodeId})</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       {issues.length > 0 && (
@@ -107,11 +143,11 @@ export default function NodeDetails({ result, node, onJump, onSelectDiagnostic, 
       {metadata.length > 0 && (
         <div className="mt-3">
           <div className="font-medium text-slate-800">Metadata</div>
-          <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
-            {metadata.map(([key, value]) => (
-              <div key={key} className="contents">
-                <dt className="text-slate-500">{key}</dt>
-                <dd className="break-all font-mono text-slate-800">{value}</dd>
+          <dl className="mt-1 grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+            {metadata.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="font-mono text-slate-500">{k}</dt>
+                <dd className="font-mono text-slate-800">{v}</dd>
               </div>
             ))}
           </dl>

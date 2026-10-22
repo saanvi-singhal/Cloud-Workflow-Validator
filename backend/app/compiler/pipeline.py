@@ -5,6 +5,11 @@ This is the single entry point the API layer calls::
     result = compile_source(request.source, request.format, request.filename)
     return result.model_dump(mode="json")
 
+Or for multi-file analysis::
+
+    result = compile_files([(f.filename, f.content) for f in request.files], request.format)
+    return result.model_dump(mode="json")
+
 Stages, in order:
 
 1. **Parse** (format adapter): IR plus parser findings.
@@ -12,7 +17,8 @@ Stages, in order:
 3. **Cycles**: Tarjan SCC + DFS path reconstruction.
 4. **Order**: Kahn's topological sort, only when meaningful (see below).
 5. **Connectivity**: components and reachability, as the format policy says.
-6. **Sort** all findings deterministically, then derive recommendations
+6. **Cross-file & Variables**: inter-file dependency & variable occurrence tracking.
+7. **Sort** all findings deterministically, then derive recommendations
    (which refer to diagnostics by their index in the sorted list).
 
 ``execution_order`` is ``None`` unless *all* of these hold: the format's
@@ -25,6 +31,7 @@ misleading (spec 5.3).
 from __future__ import annotations
 
 from app.analysis.cycles import cycle_findings, detect_cycles
+from app.analysis.multifile import analyze_multifile
 from app.analysis.reachability import component_findings, reachability_findings
 from app.analysis.topological_sort import topological_order
 from app.analysis.validation import validate_graph
@@ -33,11 +40,21 @@ from app.compiler.findings import Finding
 from app.compiler.graph import DependencyGraph
 from app.compiler.ir import IRGraph, sort_findings
 from app.compiler.policy import policy_for
-from app.models import AnalysisResult, GraphPayload, Severity, SourceFormat
+from app.models import (
+    AnalysisResult,
+    GraphPayload,
+    MultiFileSummary,
+    Severity,
+    SourceFormat,
+)
 from app.recommendations.engine import generate_recommendations
 
 
-def analyze_ir(parse: ParseResult, fmt: SourceFormat) -> AnalysisResult:
+def analyze_ir(
+    parse: ParseResult,
+    fmt: SourceFormat,
+    file_list: list[str] | None = None,
+) -> AnalysisResult:
     """Run every analysis pass over a parser's output."""
     findings: list[Finding] = list(parse.findings)
     clean_ir: IRGraph | None = None
@@ -69,6 +86,11 @@ def analyze_ir(parse: ParseResult, fmt: SourceFormat) -> AnalysisResult:
 
     ordered = sort_findings(findings)
     diagnostics = [f.diagnostic for f in ordered]
+
+    multifile_summary: MultiFileSummary | None = None
+    if file_list is not None:
+        multifile_summary = analyze_multifile(clean_ir, file_list, ordered)
+
     return AnalysisResult(
         valid=not any(d.severity is Severity.error for d in diagnostics),
         format=fmt,
@@ -76,6 +98,7 @@ def analyze_ir(parse: ParseResult, fmt: SourceFormat) -> AnalysisResult:
         graph=clean_ir.to_payload() if clean_ir is not None else GraphPayload(),
         execution_order=order,
         recommendations=generate_recommendations(ordered, clean_ir),
+        multifile=multifile_summary,
     )
 
 
@@ -93,3 +116,26 @@ def compile_source(
     """
     chosen = adapter if adapter is not None else get_adapter(fmt)
     return analyze_ir(chosen.parse(source, filename), fmt)
+
+
+def compile_files(
+    files: list[tuple[str, str]],
+    fmt: SourceFormat,
+    *,
+    adapter: SourceAdapter | None = None,
+) -> AnalysisResult:
+    """Parse and analyse multiple source files together.
+
+    Extracts cross-file references, detects duplicate variable declarations,
+    and analyzes inter-file dependencies.
+    """
+    chosen = adapter if adapter is not None else get_adapter(fmt)
+    file_list = [filename for filename, _ in files]
+    if hasattr(chosen, "parse_files"):
+        parse_result = chosen.parse_files(files)  # type: ignore[no-any-return]
+    elif len(files) == 1:
+        parse_result = chosen.parse(files[0][1], files[0][0])
+    else:
+        combined_source = "\n".join(src for _, src in files)
+        parse_result = chosen.parse(combined_source, files[0][0])
+    return analyze_ir(parse_result, fmt, file_list=file_list)

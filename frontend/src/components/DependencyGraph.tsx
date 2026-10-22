@@ -60,6 +60,7 @@ const NODE_COLORS: Record<Severity | 'none', { border: string; background: strin
   none: { border: '#94a3b8', background: '#ffffff' },
 };
 const CYCLE_EDGE = '#ef4444';
+const INTERFILE_EDGE = '#6366f1';
 const HIGHLIGHT = '0 0 0 3px rgba(99, 102, 241, 0.65)';
 
 // Typed edge styling (spec 8.3): explicit dependencies are dashed so they stand
@@ -117,7 +118,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
     return { ...chosen, drawable };
   }, [result]);
 
-  const { nodes, edges, hasCycle, severitiesShown, edgeTypes } = useMemo(() => {
+  const { nodes, edges, hasCycle, hasInterFile, severitiesShown, edgeTypes } = useMemo(() => {
     // Cycle membership and severities come from the backend's diagnostics and
     // recommendations; the frontend does not re-analyse the graph.
     const severities = nodeSeverities(result);
@@ -127,12 +128,20 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
       const p = g.node(n.id);
       const colors = NODE_COLORS[severities.get(n.id) ?? 'none'];
       const width = nodeWidth(n.label);
+      const fileBadge = n.source_location?.file ?? (n.metadata?.file as string | undefined);
       return {
         id: n.id,
         data: {
           label: (
             <div className="leading-tight">
-              <div className="text-[9px] uppercase tracking-wide text-slate-400">{n.type}</div>
+              <div className="flex items-center justify-between gap-1 text-[9px] uppercase tracking-wide text-slate-400">
+                <span>{n.type}</span>
+                {fileBadge && (
+                  <span className="max-w-[100px] truncate rounded bg-slate-100 px-1 font-mono text-[9px] lowercase text-indigo-600 font-semibold">
+                    {fileBadge}
+                  </span>
+                )}
+              </div>
               <div>{cycles.selfLoops.has(n.id) ? `${n.label}  ↻ self` : n.label}</div>
             </div>
           ),
@@ -153,23 +162,38 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
       };
     });
 
+    let interFileCount = 0;
     const edges: Edge[] = drawable.map(e => {
       const onCycle = cycles.edges.has(edgeKey(e));
+      const isInterFile = Boolean(e.metadata?.is_interfile);
+      if (isInterFile) interFileCount++;
+
+      const strokeColor = onCycle ? CYCLE_EDGE : isInterFile ? INTERFILE_EDGE : EDGE;
+      const strokeDash = onCycle ? undefined : isInterFile ? '6 3' : EDGE_DASH[e.type];
+
       return {
         id: edgeKey(e),
         source: e.source,
         target: e.target,
-        label: e.label ?? undefined,
-        animated: onCycle,
+        label: isInterFile
+          ? e.label
+            ? `${e.label} (inter-file)`
+            : 'inter-file'
+          : (e.label ?? undefined),
+        animated: onCycle || isInterFile,
         style: {
-          stroke: onCycle ? CYCLE_EDGE : EDGE,
-          strokeWidth: onCycle ? 2 : 1.5,
-          strokeDasharray: EDGE_DASH[e.type],
+          stroke: strokeColor,
+          strokeWidth: onCycle || isInterFile ? 2 : 1.5,
+          strokeDasharray: strokeDash,
         },
-        labelStyle: { fontSize: 10 },
+        labelStyle: {
+          fontSize: 10,
+          fill: isInterFile ? '#4f46e5' : undefined,
+          fontWeight: isInterFile ? 600 : 400,
+        },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: onCycle ? CYCLE_EDGE : EDGE,
+          color: strokeColor,
           width: 18,
           height: 18,
         },
@@ -180,6 +204,7 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
       nodes,
       edges,
       hasCycle: cycles.nodes.size > 0,
+      hasInterFile: interFileCount > 0,
       severitiesShown: new Set(severities.values()),
       edgeTypes: [...new Set(drawable.map(e => e.type))].sort(),
     };
@@ -200,13 +225,13 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
           </p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-[28rem] overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div ref={containerRef} className="h-[28rem] rounded-lg border border-slate-200 bg-white">
           <ReactFlow
             nodes={nodes}
             edges={edges}
             fitView
-            // Fit large graphs fully, but don't blow a single node up to fill the panel.
-            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+            fitViewOptions={{ padding: 0.15 }}
+            maxZoom={1.5}
             minZoom={0.1}
             nodesConnectable={false}
             onInit={setFlow}
@@ -258,6 +283,22 @@ export default function DependencyGraph({ result, highlighted, onSelectNode }: P
                 {EDGE_TYPE_LABELS[type] ?? type}
               </span>
             ))}
+            {hasInterFile && (
+              <span className="inline-flex items-center gap-1 font-medium text-indigo-600">
+                <svg width="22" height="6" aria-hidden="true">
+                  <line
+                    x1="0"
+                    y1="3"
+                    x2="22"
+                    y2="3"
+                    stroke={INTERFILE_EDGE}
+                    strokeWidth="2"
+                    strokeDasharray="6 3"
+                  />
+                </svg>
+                Inter-file dependency
+              </span>
+            )}
           </p>
         )}
         {severitiesShown.size > 0 && (

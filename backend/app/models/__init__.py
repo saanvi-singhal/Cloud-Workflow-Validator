@@ -1,6 +1,11 @@
 """Public, JSON-serializable contract models shared by all backend modules."""
 
-from app.models.analysis import AnalysisResult
+from app.models.analysis import (
+    AnalysisResult,
+    InterFileDependency,
+    MultiFileSummary,
+    VariableOccurrence,
+)
 from app.models.common import EdgeType, NodeType, Severity, SourceFormat, SourceLocation
 from app.models.diagnostics import Diagnostic, DiagnosticCode
 from app.models.graph import Edge, GraphPayload, Node
@@ -14,6 +19,8 @@ __all__ = [
     "EdgeType",
     "FixKind",
     "GraphPayload",
+    "InterFileDependency",
+    "MultiFileSummary",
     "Node",
     "NodeType",
     "ProposedChange",
@@ -21,4 +28,5 @@ __all__ = [
     "Severity",
     "SourceFormat",
     "SourceLocation",
+    "VariableOccurrence",
 ]

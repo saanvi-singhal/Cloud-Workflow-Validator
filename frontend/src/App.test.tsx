@@ -135,3 +135,93 @@ describe('graph integration', () => {
     expect(within(details).getByText('RUN npm test')).toBeTruthy();
   });
 });
+
+
+describe('multifile upload and analysis', () => {
+  it('loads multi-file sample and submits files list payload', async () => {
+    const user = userEvent.setup();
+    const mockMultiResult = {
+      valid: true,
+      format: 'terraform',
+      diagnostics: [],
+      graph: {
+        nodes: [
+          {
+            id: 'tf:variable:vpc_cidr',
+            label: 'var.vpc_cidr',
+            type: 'variable',
+            source_location: { file: 'variables.tf', start_line: 1, start_column: 1, end_line: 4, end_column: 2 },
+            metadata: { file: 'variables.tf' },
+          },
+          {
+            id: 'tf:resource:aws_vpc.main',
+            label: 'aws_vpc.main',
+            type: 'resource',
+            source_location: { file: 'main.tf', start_line: 1, start_column: 1, end_line: 3, end_column: 2 },
+            metadata: { file: 'main.tf' },
+          },
+        ],
+        edges: [
+          {
+            source: 'tf:variable:vpc_cidr',
+            target: 'tf:resource:aws_vpc.main',
+            type: 'terraform_reference',
+            label: 'cidr_block',
+            source_location: null,
+            metadata: { is_interfile: true, source_file: 'variables.tf', target_file: 'main.tf' },
+          },
+        ],
+      },
+      execution_order: ['tf:variable:vpc_cidr', 'tf:resource:aws_vpc.main'],
+      recommendations: [],
+      multifile: {
+        files: ['variables.tf', 'main.tf', 'outputs.tf'],
+        interfile_dependencies: [
+          {
+            source_node: 'tf:variable:vpc_cidr',
+            target_node: 'tf:resource:aws_vpc.main',
+            source_file: 'variables.tf',
+            target_file: 'main.tf',
+            edge_type: 'terraform_reference',
+            symbol: 'var.vpc_cidr',
+          },
+        ],
+        variable_occurrences: [
+          {
+            name: 'vpc_cidr',
+            declared_files: ['variables.tf'],
+            referenced_files: ['main.tf'],
+            total_occurrences: 2,
+            is_duplicate: false,
+            is_unused: false,
+            locations: [],
+          },
+        ],
+        duplicate_variables: [],
+        unused_variables: [],
+      },
+    };
+
+    const fetchMock = stubFetch(ok(mockMultiResult));
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: 'Load multi-file sample' }));
+    expect(screen.getByText('variables.tf')).toBeTruthy();
+    expect(screen.getByText('main.tf')).toBeTruthy();
+    expect(screen.getByText('outputs.tf')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Analyze 3 files' }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(/\/api\/v1\/validate$/);
+    const body = JSON.parse(String(init.body));
+    expect(body.files).toHaveLength(3);
+    expect(body.files[0].filename).toBe('variables.tf');
+
+    expect(await screen.findByText('Validated 3 files')).toBeTruthy();
+    expect(screen.getByText('Variables & Occurrences Across Files')).toBeTruthy();
+    expect(screen.getAllByText('var.vpc_cidr').length).toBeGreaterThan(0);
+    expect(screen.getByText('Cross-file Reference')).toBeTruthy();
+  });
+});

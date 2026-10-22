@@ -1,4 +1,4 @@
-"""Build the shared IR from Terraform blocks (single ``.tf`` file, v1).
+"""Build the shared IR from Terraform blocks (single or multi-file).
 
 Two passes:
 
@@ -15,15 +15,15 @@ Per-block rules (all documented in docs/compiler-core.md):
 
 * ``variable`` blocks have no dependencies (Terraform requires literal defaults);
 * ``provider = ...`` / module ``providers = {...}`` select provider
-  configurations, which are not graph nodes, so they are skipped;
+   configurations, which are not graph nodes, so they are skipped;
 * ``lifecycle.ignore_changes`` lists attribute names, not references, so it is
-  skipped; ``replace_triggered_by`` is unsupported;
+   skipped; ``replace_triggered_by`` is unsupported;
 * ``dynamic`` blocks: ``for_each`` is analysed in the enclosing scope and
-  ``content`` with the iterator name in scope, so ``ingress.value`` is not a
-  dependency. A block Terraform would reject (no ``for_each``, no or several
-  ``content`` blocks, an unknown argument) is a ``TERRAFORM_SYNTAX_ERROR``;
+   ``content`` with the iterator name in scope, so ``ingress.value`` is not a
+   dependency. A block Terraform would reject (no ``for_each``, no or several
+   ``content`` blocks, an unknown argument) is a ``TERRAFORM_SYNTAX_ERROR``;
 * references to undeclared blocks become ``UNRESOLVED_DEPENDENCY`` errors and
-  **no edge is created**.
+   **no edge is created**.
 """
 
 from __future__ import annotations
@@ -113,15 +113,22 @@ class _EdgeBuilder:
 
 
 class _Extractor:
-    def __init__(self, filename: str | None) -> None:
+    def __init__(self, filename: str | None, is_multi: bool = False) -> None:
         self.filename = filename
+        self.is_multi = is_multi
         self.findings: list[Finding] = []
         self.complete = True
         self.nodes: list[Node] = []
         self.taken_ids: set[str] = set()
         self.address_to_id: dict[str, str] = {}
+        self.declaration_locations: dict[str, SourceLocation | None] = {}
         self.modelled: list[tuple[Block, str]] = []
         self.edges: dict[tuple[str, str, EdgeType], _EdgeBuilder] = {}
+
+    def _file_of(self, location: SourceLocation | None) -> str | None:
+        if location and location.file:
+            return location.file
+        return self.filename
 
     # -- diagnostics helpers ------------------------------------------------
 
@@ -189,12 +196,25 @@ class _Extractor:
         base_id = make_node_id(ID_PREFIX, id_kind, *block.labels)
         node_id = unique_id(base_id, self.taken_ids)
         if node_id != base_id:
+            first_loc = self.declaration_locations.get(address)
+            first_file = first_loc.file if first_loc and first_loc.file else None
+            curr_file = block.location.file if block.location and block.location.file else None
+            if first_file and curr_file and first_file != curr_file:
+                message = (
+                    f"'{address}' is declared more than once across files "
+                    f"(first in '{first_file}', duplicate in '{curr_file}'); "
+                    "references resolve to the first declaration."
+                )
+            else:
+                message = (
+                    f"'{address}' is declared more than once; references "
+                    "resolve to the first declaration."
+                )
             self.findings.append(
                 make_finding(
                     DiagnosticCode.DUPLICATE_NODE_ID,
                     Severity.error,
-                    f"'{address}' is declared more than once; references "
-                    "resolve to the first declaration.",
+                    message,
                     block.location,
                     node_ids=(base_id, node_id),
                     details={"address": address},
@@ -202,12 +222,17 @@ class _Extractor:
             )
         else:
             self.address_to_id[address] = node_id
+            self.declaration_locations[address] = block.location
 
         metadata: dict[str, JsonValue] = {
             "block_type": block.type,
             "address": address,
             "attributes": sorted({a.name for a in block.attributes}),
         }
+        if block.location and block.location.file:
+            metadata["file"] = block.location.file
+        if block.type == "variable":
+            metadata["variable_name"] = block.labels[0]
         if block.type in ("resource", "data"):
             metadata["resource_type"] = block.labels[0]
             metadata["name"] = block.labels[1]
@@ -309,6 +334,8 @@ class _Extractor:
                 iterator = given
         inner = scoped | {iterator}
 
+        file_to_use = self._file_of(dynamic.location)
+
         for_each = dynamic.attribute("for_each")
         if for_each is None:
             self.structure_error(
@@ -318,12 +345,12 @@ class _Extractor:
                 node_id,
             )
         else:
-            analysis = analyze_expression(for_each.expr, self.filename, scoped)
+            analysis = analyze_expression(for_each.expr, file_to_use, scoped)
             self.record(analysis, node_id, f"{where}.for_each", explicit=False)
 
         for attribute in dynamic.attributes:
             if attribute.name == "labels":
-                analysis = analyze_expression(attribute.expr, self.filename, inner)
+                analysis = analyze_expression(attribute.expr, file_to_use, inner)
                 self.record(analysis, node_id, f"{where}.labels", explicit=False)
             elif attribute.name not in ("for_each", "iterator"):
                 self.structure_error(
@@ -371,8 +398,9 @@ class _Extractor:
         scoped: frozenset[str] = frozenset(),
     ) -> None:
         name = attribute.name
+        file_to_use = self._file_of(attribute.location or block.location)
         if top_level and name == "depends_on":
-            analysis = explicit_dependencies(attribute.expr, self.filename)
+            analysis = explicit_dependencies(attribute.expr, file_to_use)
             self.record(analysis, node_id, "depends_on", explicit=True)
             return
         if top_level and name in ("provider", "providers"):
@@ -387,7 +415,7 @@ class _Extractor:
                     )
                 )
                 return
-        analysis = analyze_expression(attribute.expr, self.filename, scoped)
+        analysis = analyze_expression(attribute.expr, file_to_use, scoped)
         self.record(analysis, node_id, ".".join((*path, name)), explicit=False)
 
     def record(
@@ -412,13 +440,24 @@ class _Extractor:
             known = sorted(
                 a for a in self.address_to_id if self._kind_of_address(a) == kind
             )
+            if self.is_multi:
+                all_files = sorted(
+                    {
+                        n.source_location.file
+                        for n in self.nodes
+                        if n.source_location and n.source_location.file
+                    }
+                )
+                files_hint = ", ".join(f"'{f}'" for f in all_files) if all_files else "uploaded files"
+                hint = f"It is not declared in any of the uploaded files ({files_hint})."
+            else:
+                hint = "v1 analyses a single .tf file, so it must be declared in this file."
             self.findings.append(
                 make_finding(
                     DiagnosticCode.UNRESOLVED_DEPENDENCY,
                     Severity.error,
                     f"Reference to undeclared {reference.kind.replace('_', ' ')} "
-                    f"'{reference.address}' (in '{attribute_path}'). v1 analyses a "
-                    "single .tf file, so it must be declared in this file.",
+                    f"'{reference.address}' (in '{attribute_path}'). {hint}",
                     reference.location,
                     node_ids=(node_id,),
                     details={"address": reference.address, "known_addresses": known},
@@ -460,24 +499,54 @@ class _Extractor:
         return "resource"
 
     def build(self) -> IRGraph:
-        edges = [
-            Edge(
-                source=b.source,
-                target=b.target,
-                type=b.type,
-                label=b.label,
-                source_location=b.location,
-                metadata={"references": b.references},
+        node_file_map = {
+            n.id: (n.source_location.file if n.source_location else None)
+            for n in self.nodes
+        }
+        edges = []
+        for b in self.edges.values():
+            src_file = node_file_map.get(b.source)
+            tgt_file = node_file_map.get(b.target)
+            is_interfile = bool(src_file and tgt_file and src_file != tgt_file)
+            edge_meta: dict[str, JsonValue] = {"references": b.references}
+            if is_interfile:
+                edge_meta["is_interfile"] = True
+                edge_meta["source_file"] = src_file
+                edge_meta["target_file"] = tgt_file
+            edges.append(
+                Edge(
+                    source=b.source,
+                    target=b.target,
+                    type=b.type,
+                    label=b.label,
+                    source_location=b.location,
+                    metadata=edge_meta,
+                )
             )
-            for b in self.edges.values()
-        ]
         return IRGraph(format=SourceFormat.terraform, nodes=self.nodes, edges=edges)
 
 
 def extract(terraform_file: TerraformFile, filename: str | None) -> ExtractionResult:
     """Convert a parsed ``.tf`` file into IR plus parser findings."""
-    extractor = _Extractor(filename)
+    extractor = _Extractor(filename, is_multi=False)
     extractor.declare(terraform_file)
+    extractor.connect()
+    return ExtractionResult(
+        ir=extractor.build(),
+        findings=extractor.findings,
+        complete=extractor.complete,
+        modelled=extractor.modelled,
+    )
+
+
+def extract_files(
+    terraform_files: list[tuple[str, TerraformFile]],
+) -> ExtractionResult:
+    """Convert multiple parsed ``.tf`` files into shared IR plus findings."""
+    is_multi = len(terraform_files) > 1
+    extractor = _Extractor(filename=None, is_multi=is_multi)
+    for _, tf_file in terraform_files:
+        extractor.declare(tf_file)
     extractor.connect()
     return ExtractionResult(
         ir=extractor.build(),
