@@ -175,11 +175,11 @@ Defined in `backend/app/models/recommendations.py`:
 | `diagnostic_code` | string | Code of the linked diagnostic. |
 | `diagnostic_index` | integer | Index into this response's `diagnostics` list. |
 | `fix_kind` | `"deterministic"` \| `"judgment"` | Every v1 recommendation is `judgment`; none is claimed to be provably safe. |
-| `proposed_change` | object \| null | `{description, preview, source_location}`. `preview` is a text diff only when the exact edit is known, otherwise `null`. |
+| `proposed_change` | object \| null | `{description, preview, source_location, patch}`. `preview` is a short text diff, set only when the exact edit is known, otherwise `null`. `patch` is a full unified diff against the submitted file (apply with `git apply`), or `null` when the edit is not certain. |
 | `source_location` | object \| null | Same as the linked diagnostic. |
 | `related_node_ids` | string[] | Nodes to highlight. |
 
-Recommendations never modify the source; a `preview` is text only. The full
+Recommendations never modify the source. `preview` and `patch` are text that the user may apply. The full
 catalogue is in [compiler-core.md](compiler-core.md#9-recommendations).
 
 ## HTTP status semantics (spec 7.4)

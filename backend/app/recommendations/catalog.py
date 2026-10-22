@@ -585,6 +585,116 @@ def _df_apk_unpinned_packages(finding: Finding, index: int) -> Recommendation:
     )
 
 
+def _advice(
+    rule_id: str,
+    title: str,
+    explanation: str,
+    description: str,
+    preview: str | None = None,
+) -> Callable[[Finding, int], Recommendation]:
+    """A layer/cache advisor recommendation (dockerfile_advisor.py)."""
+
+    def make(finding: Finding, index: int) -> Recommendation:
+        return _make(
+            rule_id,
+            finding,
+            index,
+            title,
+            explanation,
+            ProposedChange(
+                description=description,
+                preview=preview,
+                source_location=finding.diagnostic.source_location,
+            ),
+        )
+
+    return make
+
+
+def _df_volatile_arg_early(finding: Finding, index: int) -> Recommendation:
+    name = finding.details.get("name", "ARG")
+    return _make(
+        "DF_VOLATILE_ARG_EARLY",
+        finding,
+        index,
+        f"Declare ARG {name} after the install steps",
+        "Docker reuses a cached RUN only if its environment is unchanged, and "
+        "an ARG is part of the environment of every RUN after it. Declaring it "
+        "late keeps the slow install layers cached between builds.",
+        ProposedChange(
+            description=f"Move 'ARG {name}' below the installs, just before the "
+            "first instruction that uses it.",
+            preview=f"- ARG {name}\n  RUN <install dependencies>\n+ ARG {name}",
+            source_location=finding.diagnostic.source_location,
+        ),
+    )
+
+
+ADVISOR_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = {
+    "DF_VOLATILE_ARG_EARLY": _df_volatile_arg_early,
+    "DF_PACKAGES_AFTER_SOURCE": _advice(
+        "DF_PACKAGES_AFTER_SOURCE",
+        "Install OS packages before copying the source",
+        "Layers after a changed COPY are rebuilt. Source changes on every commit; "
+        "system packages rarely do, so they belong above the COPY.",
+        "Move the package install above the COPY of the source.",
+        "+ RUN <install packages>\n  COPY . .\n- RUN <install packages>",
+    ),
+    "DF_APT_NO_RECOMMENDS": _advice(
+        "DF_APT_NO_RECOMMENDS",
+        "Skip recommended packages",
+        "Recommended packages are optional extras that apt installs by default; "
+        "containers almost never need them.",
+        "Add --no-install-recommends to apt-get install.",
+        "- apt-get install -y <pkgs>\n"
+        "+ apt-get install -y --no-install-recommends <pkgs>",
+    ),
+    "DF_APT_LISTS_NOT_REMOVED": _advice(
+        "DF_APT_LISTS_NOT_REMOVED",
+        "Remove the apt package index in the same RUN",
+        "Files deleted in a later layer still take space in this one, so the "
+        "cleanup must happen in the RUN that ran apt-get update.",
+        "End the RUN with && rm -rf /var/lib/apt/lists/*",
+        "  RUN apt-get update && apt-get install -y <pkgs> \\\n"
+        "+     && rm -rf /var/lib/apt/lists/*",
+    ),
+    "DF_PIP_NO_CACHE_DIR": _advice(
+        "DF_PIP_NO_CACHE_DIR",
+        "Disable pip's download cache",
+        "The cache only helps repeated installs on the same machine; in an image "
+        "layer it is dead weight.",
+        "Add --no-cache-dir to pip install.",
+        "- pip install <pkgs>\n+ pip install --no-cache-dir <pkgs>",
+    ),
+    "DF_CLEANUP_IN_SEPARATE_LAYER": _advice(
+        "DF_CLEANUP_IN_SEPARATE_LAYER",
+        "Clean up in the RUN that created the files",
+        "Each RUN is a layer and layers only add: a later rm hides files but the "
+        "earlier layer still contains them.",
+        "Append this cleanup with && to the RUN that created the files, and "
+        "delete this RUN.",
+    ),
+    "DF_MULTI_STAGE_OPPORTUNITY": _advice(
+        "DF_MULTI_STAGE_OPPORTUNITY",
+        "Split into a build stage and a runtime stage",
+        "Compilers, headers and build caches are only needed to build. A "
+        "multi-stage build leaves them in the builder, so the shipped image is "
+        "smaller and has less to patch.",
+        "Build in 'FROM <sdk> AS build', then start a runtime stage and copy "
+        "only the artifact with COPY --from=build.",
+        "+ FROM <sdk image> AS build\n  ... build steps ...\n"
+        "+ FROM <runtime image>\n+ COPY --from=build /out /app",
+    ),
+    "DF_FINAL_STAGE_SDK_IMAGE": _advice(
+        "DF_FINAL_STAGE_SDK_IMAGE",
+        "Use a runtime image for the final stage",
+        "SDK images contain compilers and tools (often hundreds of MB) that "
+        "the running application does not use.",
+        "Base the final stage on a runtime image and copy the build output.",
+    ),
+}
+
+
 def _gha_number_loses_zero(finding: Finding, index: int) -> Recommendation:
     text = finding.details.get("text", "")
     seen = finding.details.get("seen", "")
@@ -668,6 +778,7 @@ SECURITY_RECOMMENDATIONS: dict[str, Callable[[Finding, int], Recommendation]] = 
     "GHA_NUMBER_LOSES_ZERO": _gha_number_loses_zero,
     "GHA_SCRIPT_INJECTION": _gha_script_injection,
     "GHA_UNPINNED_ACTION": _gha_unpinned_action,
+    **ADVISOR_RECOMMENDATIONS,
 }
 
 

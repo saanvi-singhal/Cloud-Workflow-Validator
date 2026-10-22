@@ -10,13 +10,27 @@ PREFIX = "FROM debian:12-slim\n"
 SUFFIX = "USER app\n"
 
 
+# The layer/cache advisor has its own tests (test_dockerfile_advisor.py).
+ADVISOR_RULES = {
+    "DF_VOLATILE_ARG_EARLY",
+    "DF_PACKAGES_AFTER_SOURCE",
+    "DF_APT_NO_RECOMMENDS",
+    "DF_APT_LISTS_NOT_REMOVED",
+    "DF_PIP_NO_CACHE_DIR",
+    "DF_CLEANUP_IN_SEPARATE_LAYER",
+    "DF_MULTI_STAGE_OPPORTUNITY",
+    "DF_FINAL_STAGE_SDK_IMAGE",
+}
+
+
 def rules(source: str) -> list[tuple[str, int]]:
     result = compile_source(source, SourceFormat.dockerfile)
-    return [
+    found = [
         (d.message.split("]")[0].lstrip("["), d.source_location.start_line)
         for d in result.diagnostics
         if d.code == DiagnosticCode.SECURITY_RULE_VIOLATION
     ]
+    return [(rule, line) for rule, line in found if rule not in ADVISOR_RULES]
 
 
 def fired(source: str) -> set[str]:
@@ -178,7 +192,7 @@ def test_unpinned_packages_are_listed():
         f"{PREFIX}RUN apt-get update && apt-get install -y curl git=1 $EXTRA\n{SUFFIX}",
         SourceFormat.dockerfile,
     )
-    [diagnostic] = result.diagnostics
+    [diagnostic] = [d for d in result.diagnostics if "DF_APT_UNPINNED" in d.message]
     assert "without a version: curl." in diagnostic.message
 
 
@@ -222,7 +236,7 @@ def test_consecutive_runs_are_grouped_per_stage():
 def test_rule_findings_are_linked_to_their_stage_and_have_specific_fixes():
     result = compile_source(BAD_DOCKERFILE, SourceFormat.dockerfile)
     by_rule = {r.rule_id: r for r in result.recommendations}
-    assert set(by_rule) == {
+    assert set(by_rule) - ADVISOR_RULES == {
         "DF_RUNS_AS_ROOT",
         "DF_UNPINNED_BASE_IMAGE",
         "DF_COPY_ALL_BEFORE_INSTALL",

@@ -32,6 +32,7 @@ from app.models import (
     SourceFormat,
     SourceLocation,
 )
+from app.rules.dockerfile_advisor import run_dockerfile_advisor
 from app.rules.dockerfile_rules import (
     RULE_APK_NO_CACHE,
     RULE_APT_UPDATE_ALONE,
@@ -688,7 +689,10 @@ class DockerfileAdapter:
         extractor = _DockerfileExtractor(filename)
         ir = extractor.extract(structure)
         instructions = extractor.instructions(structure)
-        rule_findings = run_dockerfile_rules(instructions)
+        rule_findings = [
+            *run_dockerfile_rules(instructions),
+            *run_dockerfile_advisor(instructions),
+        ]
 
         result = ParseResult(
             ir=ir,

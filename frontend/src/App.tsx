@@ -14,6 +14,7 @@ import NodeDetails from './components/NodeDetails';
 import MultiFilePanel from './components/MultiFilePanel';
 import CompareView from './components/CompareView';
 import PatchBlock from './components/PatchBlock';
+import AdvisorPanel from './components/AdvisorPanel';
 import terraformSample from './samples/main.tf?raw';
 import dockerfileSample from './samples/Dockerfile?raw';
 import yamlSample from './samples/ci.yml?raw';
@@ -757,6 +758,8 @@ export default function App() {
                   onJumpToFile={jumpToFile}
                 />
               )}
+
+              <AdvisorPanel result={result} onSelectDiagnostic={selectDiagnostic} />
 
               <h2 className="mt-6 font-mono text-base font-semibold uppercase tracking-wider text-white">Diagnostics</h2>
               {result.diagnostics.length === 0 && (

@@ -139,6 +139,10 @@ No universal root is invented. Formats without a root get no reachability check.
 - **DFS** with WHITE/GRAY/BLACK colours, restricted to each cyclic SCC, reconstructs one closed path. The diagnostic's location is the edge that closes the cycle; if that edge has no location, the dependent node's location is used.
 - **Kahn's algorithm** with a min-heap gives a deterministic order, or `None` if nodes remain (cycle).
 - **Weakly connected components** come from a BFS ignoring direction. **Ancestors** come from a BFS over predecessors (a root's prerequisites).
+- **Minimum edge removal** (`analysis/feedback_arcs.py`) chooses the edges to drop to break a cycle. It finds a minimum-cost feedback arc set of the cyclic component.
+  - **Costs:** removing a `depends_on` or `needs` entry costs 1, because it only orders steps. Removing an attribute reference costs 3, because it changes a value.
+  - **Exact search** for components of up to 16 edges: subsets are tried in order of cost, then size, then edge keys, so the result is optimal and deterministic. Tests check it against brute force on random weighted graphs.
+  - **Eades–Lin–Smyth heuristic** above that size: the result is always acyclic, but not necessarily minimal, and is marked `optimal: false`. The general problem is NP-hard.
 
 All of these use explicit stacks or queues, with no recursion, so long chains don't hit Python's recursion limit. 5000-node chains are tested.
 
@@ -194,6 +198,21 @@ These are literal-only: a value that comes from a variable or expression never t
 | `DF_APK_NO_CACHE` | info | `apk add` without `--no-cache` (and no `rm -rf /var/cache/apk` in the same `RUN`) |
 | `DF_APK_UNPINNED_PACKAGES` | info | `apk add` packages without `=version` or `~version` |
 
+### Layer and cache advisor
+
+`app/rules/dockerfile_advisor.py`, run with the Dockerfile rules. These rules cover build speed (cache reuse) and image size. All are `info`, because the image still works. A `RUN --mount=type=cache` skips the size rules. The UI groups the findings in a "Layer & cache advisor" panel.
+
+| rule_id | Fires when |
+|---|---|
+| `DF_VOLATILE_ARG_EARLY` | An `ARG` that changes every build (`BUILD_DATE`, `GIT_SHA`, `CACHEBUST`, …) is declared before an install in the same stage. Every later `RUN` sees it, so none of them is cached. |
+| `DF_PACKAGES_AFTER_SOURCE` | OS packages are installed after the context or a source directory was copied, so every code change reinstalls them. |
+| `DF_APT_NO_RECOMMENDS` | `apt-get install` without `--no-install-recommends`. |
+| `DF_APT_LISTS_NOT_REMOVED` | A `RUN` with `apt-get update` and an install leaves `/var/lib/apt/lists` in its layer. |
+| `DF_PIP_NO_CACHE_DIR` | `pip install` without `--no-cache-dir`. |
+| `DF_CLEANUP_IN_SEPARATE_LAYER` | A `RUN` that only deletes files or cleans caches, after another `RUN`. The earlier layer keeps the files. |
+| `DF_MULTI_STAGE_OPPORTUNITY` | A single-stage file that runs a build step (`go build`, `make`, `npm run build`, …). The evidence lists any SDK base image and installed toolchain. Toolchain-only images (CI and cross-compile images) are not reported. |
+| `DF_FINAL_STAGE_SDK_IMAGE` | A multi-stage build whose final stage is still an SDK image (golang, rust, maven, gradle, dotnet/sdk). |
+
 ## 8b. GitHub Actions rules
 
 `app/rules/github_actions_rules.py`, called by the YAML adapter. Workflows GitHub would reject are handled by the parser's schema checks (`YAML_SYNTAX_ERROR`). These rules flag workflows GitHub accepts but that likely do not do what was meant.
@@ -210,9 +229,24 @@ Booleans and numbers in `env` (`DEBUG: true`, `PORT: 8080`) are *not* flagged: G
 
 The engine walks findings in final sorted order, so `diagnostic_index` is the index into `diagnostics`, and `id = "<rule_id>:<diagnostic_index>"`. In v1 every recommendation is `fix_kind: "judgment"`, because none can be proven safe. `preview` is set only when the exact edit is known. Nothing is ever applied to source.
 
+**Patches.** `proposed_change.patch` is a complete unified diff against the submitted file. It has `a/` and `b/` paths, so it applies with `git apply fix.patch` or `patch -p1`.
+
+- **When a patch is produced:** only when the edit is certain. The text must be found exactly where the diagnostic points, and only once.
+- **Which fixes have patches:**
+  - typo fixes (did you mean)
+  - breaking a cycle, when every edge in the minimum removal is a `depends_on`/`needs` entry
+  - `-y`, `--no-install-recommends`, apt-lists cleanup, `--no-cache-dir` and `apk --no-cache`
+  - ADD → COPY
+  - exec-form quotes
+  - quoting a number that would lose a trailing zero
+  - S3 ACL → `private`, and `publicly_accessible = false`
+  - a hard-coded secret → a new `sensitive` variable
+- **Testing:** `tests/integration/test_patches.py` applies every generated patch with `git apply` and re-analyses the patched files. The targeted diagnostic must be gone, and no new error may appear.
+- **Scripts:** a patch for a build-context script names that script's file.
+
 | Diagnostic | rule_id | Proposed change |
 |---|---|---|
-| `DEPENDENCY_CYCLE` | `BREAK_DEPENDENCY_CYCLE` | Lists the cycle's edges, explicit `depends_on` first; description only |
+| `DEPENDENCY_CYCLE` | `BREAK_DEPENDENCY_CYCLE` | Minimum edge removal (section 6): names the cheapest edges to drop, with a patch when they are all `depends_on`/`needs` entries |
 | `UNRESOLVED_DEPENDENCY` | `RESOLVE_MISSING_DEPENDENCY` | "Did you mean X?" with a preview when `difflib` finds a close match |
 | `DUPLICATE_NODE_ID` | `RENAME_DUPLICATE` | None |
 | `DISCONNECTED_COMPONENT` | `REVIEW_DISCONNECTED` | None |

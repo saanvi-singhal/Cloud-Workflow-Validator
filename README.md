@@ -11,8 +11,11 @@ The authoritative contract is [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md).
 1. **Parse** one source file into the shared IR: nodes (jobs, stages, Terraform blocks) and edges, where `A → B` means *A must come before B*.
 2. **Validate** the graph, then find cycles (Tarjan SCC plus a DFS path for each cycle), compute a deterministic execution order (Kahn's algorithm), and check reachability and disconnected parts.
 3. **Check rules**: schema errors the target tool would reject, plus a small, documented set of security and quality rules.
-4. **Report** diagnostics with exact source locations and deterministic recommendations, some with a preview of the change. Nothing is ever applied to your files.
-5. **Show** it all in a web UI: an interactive graph, clickable diagnostics and node details.
+4. **Report** diagnostics with exact source locations and deterministic recommendations. Where the exact edit is known, a recommendation includes a ready-to-apply unified diff (`git apply`). A dependency cycle comes with the minimum set of edges to remove. Nothing is ever applied to your files.
+5. **Show** it all in a web UI:
+   - an interactive graph, clickable diagnostics and node details;
+   - a Dockerfile layer and cache advisor (build speed, image size, multi-stage opportunities);
+   - a graph diff between two versions of a configuration.
 
 **Static analysis only.** User configurations are never executed, Terraform is never run and no provider or registry is contacted.
 

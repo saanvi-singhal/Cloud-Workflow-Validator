@@ -348,3 +348,36 @@ describe('fix patches', () => {
     expect(screen.getByRole('button', { name: 'Download .patch' })).toBeTruthy();
   });
 });
+
+describe('layer and cache advisor', () => {
+  it('groups Dockerfile size and cache findings', async () => {
+    const user = userEvent.setup();
+    const message = (rule: string) => `[${rule}] advice`;
+    const advised = {
+      ...dockerfileMock,
+      diagnostics: [
+        ...dockerfileMock.diagnostics,
+        ...['DF_APT_NO_RECOMMENDS', 'DF_PIP_NO_CACHE_DIR', 'DF_MULTI_STAGE_OPPORTUNITY'].map(
+          (rule, i) => ({
+            code: 'SECURITY_RULE_VIOLATION',
+            severity: 'info',
+            message: message(rule),
+            source_location: { file: null, start_line: 10 + i, start_column: 1, end_line: null, end_column: null },
+          }),
+        ),
+      ],
+    };
+    stubFetch(ok(advised));
+    render(<App />);
+
+    await user.selectOptions(screen.getByLabelText('Input format'), 'dockerfile');
+    await user.click(screen.getByRole('button', { name: 'Load sample' }));
+    await user.click(screen.getByRole('button', { name: 'Analyze' }));
+
+    const panel = await screen.findByLabelText('Layer and cache advisor');
+    expect(within(panel).getByText('Image size')).toBeTruthy();
+    expect(within(panel).getByText('Multi-stage')).toBeTruthy();
+    expect(within(panel).queryByText('Cache order')).toBeNull();
+    expect(within(panel).getByText('DF_PIP_NO_CACHE_DIR · line 11')).toBeTruthy();
+  });
+});

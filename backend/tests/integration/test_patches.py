@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,19 @@ CRAFTED: dict[str, tuple[SourceFormat, list[tuple[str, str]]]] = {
                 "ADD app.py /app/\n"
                 "USER app\n"
                 "CMD ['python', '/app/app.py']\n",
+            )
+        ],
+    ),
+    "dockerfile_size_fixes": (
+        SourceFormat.dockerfile,
+        [
+            (
+                "Dockerfile",
+                "FROM python:3.12-slim\n"
+                "RUN apt-get update \\\n"
+                "    && apt-get install -y curl=8.5.0-2\n"
+                "RUN pip install flask==3.0.0\n"
+                "USER app\n",
             )
         ],
     ),
@@ -155,8 +169,18 @@ def _target_count(result: AnalysisResult, rec: Recommendation) -> int:
     )
 
 
-def _errors(result: AnalysisResult) -> set[str]:
-    return {d.message for d in result.diagnostics if d.severity.value == "error"}
+def _errors(result: AnalysisResult) -> Counter:
+    """Errors per code, rule and file. A fix may reword a message or shift
+    later lines, so neither the text nor the line is compared."""
+    return Counter(
+        (
+            d.code.value,
+            d.message.split("]")[0] if d.message.startswith("[") else "",
+            d.source_location.file if d.source_location else None,
+        )
+        for d in result.diagnostics
+        if d.severity.value == "error"
+    )
 
 
 @needs_git
@@ -210,6 +234,9 @@ def test_every_patch_kind_is_exercised():
         "TF_S3_PUBLIC_ACL",
         "TF_DB_PUBLICLY_ACCESSIBLE",
         "TF_HARDCODED_SECRET",
+        "DF_APT_NO_RECOMMENDS",
+        "DF_APT_LISTS_NOT_REMOVED",
+        "DF_PIP_NO_CACHE_DIR",
     }
 
 

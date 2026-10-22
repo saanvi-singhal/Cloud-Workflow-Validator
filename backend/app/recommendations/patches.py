@@ -22,6 +22,7 @@ DF_EXEC_FORM_NOT_JSON       single quotes -> double quotes, when that makes
                             valid JSON
 DF_APT_NO_RECOMMENDS        add ``--no-install-recommends``
 DF_APT_LISTS_NOT_REMOVED    append ``&& rm -rf /var/lib/apt/lists/*``
+DF_PIP_NO_CACHE_DIR         add ``--no-cache-dir``
 GHA_NUMBER_LOSES_ZERO       quote the number
 TF_S3_PUBLIC_ACL            ``acl = "private"``
 TF_DB_PUBLICLY_ACCESSIBLE   ``publicly_accessible = false``
@@ -292,6 +293,19 @@ def _apt_remove_lists(
     return src.result()
 
 
+def _pip_no_cache(
+    finding: Finding, rec: Recommendation, src: _Source, ctx: PatchContext
+) -> str | None:
+    def fix(line: str) -> str:
+        for m in reversed(list(re.finditer(r"\bpip3?\s+install\b", line))):
+            if "--no-cache-dir" in _command_rest(line, m.end()):
+                continue
+            line = line[: m.end()] + " --no-cache-dir" + line[m.end() :]
+        return line
+
+    return _each_line(finding, src, fix)
+
+
 def _apk_no_cache(
     finding: Finding, rec: Recommendation, src: _Source, ctx: PatchContext
 ) -> str | None:
@@ -408,6 +422,7 @@ PRODUCERS: dict[str, Producer] = {
     "DF_APT_NO_RECOMMENDS": _apt_no_recommends,
     "DF_APT_LISTS_NOT_REMOVED": _apt_remove_lists,
     "DF_APK_NO_CACHE": _apk_no_cache,
+    "DF_PIP_NO_CACHE_DIR": _pip_no_cache,
     "DF_ADD_LOCAL_FILE": _add_to_copy,
     "DF_EXEC_FORM_NOT_JSON": _exec_form_json,
     "GHA_NUMBER_LOSES_ZERO": _quote_number,
