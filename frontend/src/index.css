@@ -1,12 +1,11 @@
 @import "tailwindcss";
 
-/* Aero Theme Styling - Light & Clean */
 :root {
   color-scheme: light;
 }
 
 body {
-  background-color: #f1f5f9;
+  background-color: #f8fafc;
   color: #0f172a;
 }
 
@@ -17,7 +16,7 @@ body {
 
 /* React Flow controls */
 .react-flow__controls {
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08) !important;
   border: 1px solid #e2e8f0 !important;
   background: #ffffff !important;
   border-radius: 8px !important;
@@ -27,8 +26,8 @@ body {
 .react-flow__controls-button {
   background: #ffffff !important;
   border-bottom: 1px solid #f1f5f9 !important;
-  fill: #475569 !important;
-  color: #475569 !important;
+  fill: #64748b !important;
+  color: #64748b !important;
 }
 
 .react-flow__controls-button:hover {
